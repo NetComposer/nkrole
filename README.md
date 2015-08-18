@@ -8,12 +8,12 @@ NkROLE creates a process for each used object in the cluster (using [_NkDIST_](h
 
 For each query that involves nested roles, a cache (another Erlang process) is started for each specific role at each related proxy, also with an specific timeout value, so that new queries are very fast, even with a huge number of objects and nested relations.
 
-NkROLE scales automatically with the number of nodes, spreading the node proxies and caches evenly in the cluster. When new nodes are added or removed, the cluster adapts automatically. If neccesary, proxy objects are moved, but caches are not moved. If the should go to another node, they are deleted and recreated there when needed.
+NkROLE scales automatically with the number of nodes, spreading the node proxies and caches evenly in the cluster. When new nodes are added or removed, the cluster adapts automatically. If necesary, proxy objects are moved, but caches are not moved. If the should go to another node, they are deleted and recreated there when needed.
 
-NkROLE can use any external backend for the object storage, implementing the [nkrole_store](src/nkrole_store.erl) behaviour and using the `backend` configuration value. Of course the backend must be accesible from all nodes. Two demostration backends are included:
+NkROLE can use any external backend for the object storage, implementing the [nkrole_store](src/nkrole_store.erl) behaviour and using the `backend` configuration value. Of course the backend must be accesible from all nodes. Two demonstration backends are included:
 
-* ETS: very fast but not ditributed, so it can be used only in 1-node tests.
-* Riak Core Metadta: distributed but slow for many objects.
+* ETS: very fast but not distributed, so it can be used only in 1-node tests.
+* Riak Core Metadata: distributed but slow for many objects.
 
 
 # Example1
@@ -117,6 +117,8 @@ Now we can query:
 > nkrole_proxy:find_role_objs(head, u05, #{}).
 {ok,[depA22, depA2, orgA, root]}
 ```
+
+This second example is very similar to the case for nested configuration, where an object is configured based on one or more _parents_.
 
 
 # Configuration
