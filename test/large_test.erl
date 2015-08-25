@@ -25,12 +25,11 @@
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(nkrole_proxy, [get_obj/1, get_roles/1, get_role_objs/2, find_role_objs/2,
-					   add_role/3, add_subrole/4, del_role/3, del_subrole/4,
-					   get_proxy/1, stop_all/0, stop_obj/1]).
+-import(nkrole, [get_roles/1, get_role_objs/2, find_role_objs/3,
+			     has_role/4, add_role/3, add_subrole/4, del_role/3, del_subrole/4]).
 
 
--define(LEVELS, 4).
+-define(LEVELS, 5).
 
 
 large_test_() ->
@@ -41,7 +40,7 @@ large_test_() ->
             test_util:populate(?LEVELS)
 		end,
 		fun(_) -> 
-			ok 
+            ok
 		end,
 	    fun(_) ->
 		    [
@@ -54,10 +53,10 @@ large_test_() ->
 large() ->
     ?debugMsg("Starting large test"),
     {Time1, {ok, LMax}} =
-        timer:tc(fun() -> nkrole_proxy:find_role_objs(member, <<"root">>, #{timeout=>60000}) end),
+        timer:tc(fun() -> find_role_objs(member, <<"root">>, #{timeout=>60000}) end),
     ?debugFmt("First time: ~pmsec", [Time1 div 1000]),
     {Time2, {ok, LMax}} =
-        timer:tc(fun() -> nkrole_proxy:find_role_objs(member, <<"root">>, #{}) end),
+        timer:tc(fun() -> find_role_objs(member, <<"root">>, #{}) end),
     ?debugFmt("Second time: ~pmsec", [Time2 div 1000]),
 
 
@@ -66,22 +65,22 @@ large() ->
     N1 = length(LMax),
   
     {Time3, {ok, false}} =
-        timer:tc(fun() -> nkrole_proxy:has_role(<<"none">>, member, <<"root">>, #{timeout=>60000}) end),
+        timer:tc(fun() -> has_role(<<"none">>, member, <<"root">>, #{timeout=>60000}) end),
     ?debugFmt("First search time: ~pmsec", [Time3 div 1000]),
     {Time4, {ok, false}} =
-        timer:tc(fun() -> nkrole_proxy:has_role(<<"none">>, member, <<"root">>, #{}) end),
+        timer:tc(fun() -> has_role(<<"none">>, member, <<"root">>, #{}) end),
     ?debugFmt("Seconds search time: ~pmsec", [Time4 div 1000]),
 
     [Last|_] = lists:reverse(LMax),
-    {ok, true} = nkrole_proxy:has_role(Last, member, <<"root">>, #{}),
+    {ok, true} = has_role(Last, member, <<"root">>, #{}),
 
     [O1|_] = LMax,
-    {ok, []} = nkrole_proxy:find_role_objs(member, O1, #{}),
+    {ok, []} = find_role_objs(member, O1, #{}),
     <<"0_", O2/binary>> = O1,
-    {ok, L2} = nkrole_proxy:find_role_objs(member, O2, #{}),
+    {ok, L2} = find_role_objs(member, O2, #{}),
     10 = length(L2),
     <<"0_", O3/binary>> = O2,
-    {ok, L3} = nkrole_proxy:find_role_objs(member, O3, #{}),
+    {ok, L3} = find_role_objs(member, O3, #{}),
     100 = length(L3),
     ok.
   

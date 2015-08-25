@@ -25,7 +25,7 @@
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(nkrole_proxy, [find_role_objs/3]).
+-import(nkrole, [find_role_objs/3]).
 
 
 torture_test_() ->

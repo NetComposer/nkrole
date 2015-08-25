@@ -1,20 +1,16 @@
 # Introduction
 
-NkROLE is a framework for managing complex relations among arbitrary objects in a [_riak_core_](https://github.com/basho/riak_core) cluster. You can create any number of objects (Erlang terms) and define relations among them, based on _roles_. Any object can be said to _have_ any _role_ over any other object. Also, you can say that all objects having a specific role over an object have automatically the same or other role over other object, and this complex relations can be nested at any level.
+NkROLE is a framework for managing complex relations among arbitrary objects in an Erlang cluster. You can create any number of generic objects and define relations among them, based on _roles_. Any object can _have_ any _role_ over any other object. Also, you can define that all objects having a specific role over an object have automatically the same or other role over another object, and this complex relations can be nested at any level.
 
 NkROLE creates a number of caches, so that, once all objects having a role over another object are found, the list is saved for future queries. If any of the base conditions used for the calculation change (because the base object or any of the objects used for the calculation have changed) all related caches are automatically invalidated (but only the related caches).
 
-NkROLE creates a process for each used object in the cluster (using [_NkDIST_](https://github.com/nekso/nkdist)), called the _object proxy_. Object proxies are spread evenly in the cluster, and have a timeout value. If no further query is received for a period of time, they are removed.
+NkROLE creates a process for each used object in the cluster called the _object proxy_. Object proxies have a timeout value. If no further query is received for a period of time, they are removed.
+
+By default, all processes are created at the caller node, but they can be spread in the cluster implementing the [nkrole_backend](src/nkrole_backend.erl) behaviour. NkROLE is designed to fit well with [NkDIST](https://github.com/Nekso/nkdist), distributing the load evenly on a _riak_core_ cluster. 
 
 For each query that involves nested roles, a cache (another Erlang process) is started for each specific role at each related proxy, also with an specific timeout value, so that new queries are very fast, even with a huge number of objects and nested relations.
 
-NkROLE scales automatically with the number of nodes, spreading the node proxies and caches evenly in the cluster. When new nodes are added or removed, the cluster adapts automatically. If necesary, proxy objects are moved, but caches are not moved. If the should go to another node, they are deleted and recreated there when needed.
-
-NkROLE can use any external backend for the object storage, implementing the [nkrole_store](src/nkrole_store.erl) behaviour and using the `backend` configuration value. Of course the backend must be accesible from all nodes. Two demonstration backends are included:
-
-* ETS: very fast but not distributed, so it can be used only in 1-node tests.
-* Riak Core Metadata: distributed but slow for many objects.
-
+NkROLE can use any external backend for the object storage, implementing the [nkrole_backend](src/nkrole_backend.erl) behaviour and using the `backend` configuration value. An ETS based backend is included by default.
 
 # Example1
 
@@ -35,22 +31,22 @@ $ make shell
 ```
 
 ```erlang
-> nkrole_store:put_obj(root, #{member=>[{member, orgA}, {member, orgB}}], #{}).
+> nkrole_backend:put_obj(root, #{member=>[{member, orgA}, {member, orgB}}]).
 ok
 
-> nkrole_store:put_obj(orgA, #{member=>[{member, depA1}, {member, depA2}, {member, depA3}], #{}).
+> nkrole_backend:put_obj(orgA, #{member=>[{member, depA1}, {member, depA2}, {member, depA3}]).
 ok
 
-> nkrole_store:put_obj(orgB, #{member=>[u10, {member, depB1}], #{}).
+> nkrole_backend:put_obj(orgB, #{member=>[u10, {member, depB1}]).
 ok
 ```
 
 and so on, or you could first create the objects and then apply the roles:
 ```erlang
-> nkrole:put_obj(root, #{}, #{}).
+> nkrole_backed:put_obj(root, #{}).
 ok
 
-> nkrole_proxy:add_subrole(member, root, member, orgA, #{}).
+> nkrole:add_subrole(member, root, member, orgA, #{}).
 ok
 ```
 
@@ -69,24 +65,24 @@ ok
 Now we can query in many ways:
 ```erlang
 > % Get direct roles
-> nkrole_proxy:get_role_objs(orgB, #{}).
+> nkrole:get_role_objs(orgB, #{}).
 {ok, [u10, {member, depB1}]}
 
 > % Get nested roles
-> nkrole_proxy:find_role_objs(orgB, #{}).
+> nkrole:find_role_objs(orgB, #{}).
 {ok, [u10, u11, 12]}
 
-> nkrole_proxy:find_role_objs(root, #{}).
+> nkrole:find_role_objs(root, #{}).
 {ok,[u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08,u10,u11,u12]}.
 
 > % Check users
-> nkrole_proxy:has_role(u03, member, depA21, #{}).
+> nkrole:has_role(u03, member, depA21, #{}).
 {ok, true}
 
-> nkrole_proxy:has_role(u03, member, depB1, #{}).
+> nkrole:has_role(u03, member, depB1, #{}).
 {ok, false}
 
-> nkrole_proxy:has_role(u03, member, root, #{}).
+> nkrole:has_role(u03, member, root, #{}).
 {ok, true}
 ```
 
@@ -111,14 +107,27 @@ ok
 
 Now we can query:
 ```erlang
-> nkrole_proxy:get_role_objs(head, u05, #{}).
+> nkrole:get_role_objs(head, u05, #{}).
 {ok,[depA22,{head,depA22}]}
 
-> nkrole_proxy:find_role_objs(head, u05, #{}).
+> nkrole:find_role_objs(head, u05, #{}).
 {ok,[depA22, depA2, orgA, root]}
 ```
 
 This second example is very similar to the case for nested configuration, where an object is configured based on one or more _parents_.
+
+
+# Using custom backends
+
+Instead of the included ETS backend, you can define your own storage. You must create a module implementing the [nkrole_backend](src/nkrole_backend.erl) behaviour, defining `get_roles/1` and `put_roles/2` and pointing the `backend` configuration directive to your module.
+
+Remeber to stop all caches for an object after it is modified on storage, calling `nkrole:stop/1`. If you only modify some roles calling `nkrole:add_role/4`, `nkrole:add_subrole/5`, `nkrole:del_role/4` or `nkrole:del_subrole/5` you don't need to delete the cache. The invalid caches will be automatically deleted.
+
+
+# Using a custom distribution mechanism
+
+You can also take the responsability for locating and starting object processes, for example to distribute them in the cluster using [NkDIST](https://github.com/Nekso/nkdist). You must implement the same callback module as for storage, and implement `get_proxy/2`.
+
 
 
 # Configuration
@@ -127,6 +136,6 @@ NkROLE uses standard Erlang application environment variables. The same Erlang a
 
 Option|Type|Default|Desc
 ---|---|---|---
-backend|`ets|riak_core|atom()`|`ets`|Backend to use, implementing the nkrole_store behaviour
+backend|`ets|atom()`|`ets`|Backend to use, implementing the nkrole_backend behaviour
 proxy_timeout|`pos_integer()`|`180000`|Timeout for proxy objects
 cache_timeout|`pos_integer()`|`180000`|Timeout for cache objects

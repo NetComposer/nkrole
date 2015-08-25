@@ -1,6 +1,6 @@
 {application, nkrole, [
     {description, "Nekso Role Framework"},
-    {vsn, "0.1.0"},
+    {vsn, "0.2.0"},
     {modules, []},
     {registered, []},
     {mod, {nkrole_app, []}},
@@ -11,8 +11,7 @@
         sasl,
         ssl,
         lager,
-        nklib,
-        nkdist
+        nklib
     ]},
     {env, []}
 ]}.

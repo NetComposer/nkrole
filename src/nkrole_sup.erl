@@ -35,12 +35,12 @@
 start_link() ->
     ChildsSpec = 
         [
-            {nkrole_store,
-                {nkrole_store, start_link, []},
+            {nkrole_backend,
+                {nkrole_backend, start_link, []},
                 permanent,
                 5000,
                 worker,
-                [nkrole_store]}
+                [nkrole_backend]}
         ],
     supervisor:start_link({local, ?MODULE}, ?MODULE, {{one_for_one, 10, 60}, 
                           ChildsSpec}).

@@ -25,9 +25,9 @@
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(nkrole_proxy, [get_obj/2, get_roles/2, get_role_objs/3, find_role_objs/3,
-					   add_role/4, add_subrole/5, del_role/4, del_subrole/5,
-					   get_proxy/2, stop_all/0, stop_obj/1]).
+-import(nkrole, [get_roles/2, get_role_objs/3, find_role_objs/3,
+					       add_role/4, add_subrole/5, del_role/4, del_subrole/5,
+					       get_proxy/2, stop/1]).
 
 
 basic_test_() ->
@@ -36,11 +36,11 @@ basic_test_() ->
     		ok = nkrole_app:start()
 		end,
 		fun(_) -> 
-			ok 
+            ok
 		end,
 	    fun(_) ->
 		    [
-		    	fun() -> roles() end,
+		    	{timeout, 60, fun() -> roles() end},
 		    	fun() -> caches() end
 			]
 		end
@@ -50,7 +50,9 @@ basic_test_() ->
 
 
 roles() ->
+  ?debugMsg("Starting Basic test"),
 	test_util:insert(set1),
+  timer:sleep(100),
 	
 	{ok, [member]} = get_roles(root, #{}),
 	{ok, [{member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
@@ -91,6 +93,7 @@ roles() ->
 
 
 caches() ->
+  ?debugMsg("Starting Caches test"),
 	test_util:insert(set1),
 
  	{ok, [u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08,u10,u11,u12] = RootMembers} =
@@ -131,14 +134,14 @@ caches() ->
 
    	% If we stop u06 proxy, 'member' caches are not affected (it is a direct role)
    	% (but, if the obj is removed, caches will contain a reference to a deleted object)
-	stop_obj(u06),
+	stop(u06),
 	timer:sleep(50),
     check_cached(root, member, RootMembers),
     check_cached(orgA, member, [u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08]),
    	check_cached(depB1, member, [u11, u12]),
 
     % However, if we stop depB1 proxy, the orgB branch caches are removed
-	stop_obj(depB1),
+	stop(depB1),
 	timer:sleep(50),
     check_cached(root, member, none),
     check_cached(orgA, member, [u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08]),
@@ -239,7 +242,7 @@ check_cached(ObjId, Role, none) ->
 
 check_cached(ObjId, Role, List) ->
 	Pid = get_cache(ObjId, Role),
-	case nkrole_role_cache:get_obj_ids(Pid, #{timeout=>5000}) of
+	case nkrole_cache:get_obj_ids(Pid, #{timeout=>5000}) of
 		{ok, List} -> 
 			ok;
 		{ok, Other} -> 
@@ -249,7 +252,7 @@ check_cached(ObjId, Role, List) ->
 
 
 get_cache(ObjId, Role) ->
-	{ok, Pid} = get_proxy(ObjId, #{}),
+	{ok, Pid} = nkrole_proxy:get_proxy(ObjId, #{}),
 	Caches = gen_server:call(Pid, get_caches),
 	maps:get(Role, Caches, none).
 

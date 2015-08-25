@@ -42,7 +42,6 @@
     ok | {error, Reason::term()}.
 
 start() ->
-    nkdist_util:ensure_dir(),
     case nklib_util:ensure_all_started(?APP, temporary) of
         {ok, _Started} -> ok;
         {error, Error} -> {error, Error}

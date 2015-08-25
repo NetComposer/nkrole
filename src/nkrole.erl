@@ -22,35 +22,115 @@
 -module(nkrole).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
--export_type([obj_id/0, obj_class/0, obj_ref/0, obj_data/0, obj/0]).
--export_type([role/0, role_spec/0, role_map/0]).
+-export([get_roles/2, get_role_objs/3]).
+-export([find_role_objs/3, has_role/4]).
+-export([add_role/4, add_subrole/5, del_role/4, del_subrole/5]).
+-export([stop/1]).
+
+-export_type([obj_id/0, role/0, role_spec/0, role_map/0]).
 -export_type([backend/0]).
 
 %% ===================================================================
 %% Types
 %% ===================================================================
 
--type obj_id() ::term().
-
--type obj_class() :: term().
-
--type obj_ref() :: term().
-
--type obj_data() :: term().
+-type obj_id() :: term().
 
 -type role() :: term().
 
 -type role_spec() :: obj_id() | {role(), obj_id()}.
 
--type role_map() :: #{nkrole:role() => [nkrole:role_spec()]}.
+-type role_map() :: #{role() => [role_spec()]}.
 
--type obj() :: term().
-
--type backend() :: ets | riak_core | atom().
+-type backend() :: ets | atom().
 
 
 %% ===================================================================
 %% Public
 %% ===================================================================
+
+
+%% @doc Gets an object's roles
+-spec get_roles(obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, [role()]} | {error, term()}.
+
+get_roles(ObjId, Opts) ->
+    nkrole_proxy:do_call(ObjId, get_roles, Opts).
+
+
+%% @doc Gets an object's direct roles
+-spec get_role_objs(role(), obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, [role_spec()]} | {error, term()}.
+
+get_role_objs(Role, ObjId, Opts) ->
+    nkrole_proxy:do_call(ObjId, {get_role_objs, Role}, Opts).
+
+
+%% @doc Gets an object's roles iterating at all levels
+-spec find_role_objs(role(), obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, [obj_id()]} | {error, term()}.
+
+find_role_objs(Role, ObjId, Opts) ->
+    case nkrole_proxy:get_cache(Role, ObjId, Opts) of
+        {ok, Pid} ->
+            nkrole_cache:get_obj_ids(Pid, Opts);
+        {error, Error} ->
+            {error, Error}
+    end.
+
+
+%% @doc Gets an object's roles iterating at all levels
+-spec has_role(obj_id(), role(), obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, [obj_id()]} | {error, term()}.
+
+has_role(ObjId, Role, Target, Opts) ->
+    case nkrole_proxy:get_cache(Role, Target, Opts) of
+        {ok, Pid} ->
+            nkrole_cache:has_obj_id(Pid, ObjId, Opts);
+        {error, Error} ->
+            {error, Error}
+    end.
+
+
+%% @doc Adds a role to an object
+-spec add_role(role(), obj_id(), obj_id(), nkrole_proxy:call_opts()) ->
+    ok | {error, term()}.
+
+add_role(Role, Base, ObjId, Opts) ->
+    nkrole_proxy:do_call(Base, {add_role, Role, ObjId}, Opts).
+
+
+%% @doc Adds a role to an object
+-spec add_subrole(role(), obj_id(), role(), 
+                  obj_id(), nkrole_proxy:call_opts()) ->
+    ok | {error, term()}.
+
+add_subrole(Role, Base, SubRole, ObjId, Opts) ->
+    nkrole_proxy:do_call(Base, {add_role, Role, {SubRole, ObjId}}, Opts).
+
+
+%% @doc Adds a role to an object
+-spec del_role(role(), obj_id(), obj_id(), nkrole_proxy:call_opts()) ->
+    ok | {error, term()}.
+
+del_role(Role, Base, ObjId, Opts) ->
+    nkrole_proxy:do_call(Base, {del_role, Role, ObjId}, Opts).
+
+
+%% @doc Adds a role to an object
+-spec del_subrole(role(), obj_id(), role(), 
+                  obj_id(), nkrole_proxy:call_opts()) ->
+    ok | {error, term()}.
+
+del_subrole(Role, Base, SubRole, ObjId, Opts) ->
+    nkrole_proxy:do_call(Base, {del_role, Role, {SubRole, ObjId}}, Opts).
+
+
+%% @doc
+-spec stop(nkrole:obj_id()) ->
+    ok | {error, term()}.
+
+stop(ObjId) ->
+    nkrole_proxy:stop(ObjId).
 
 

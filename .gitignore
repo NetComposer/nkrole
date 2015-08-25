@@ -4,3 +4,4 @@ dev
 ebin
 log
 .rebar
+.eunit

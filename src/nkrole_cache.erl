@@ -21,7 +21,7 @@
 %% @doc Obj Proxy
 %% Each role cache is stored at the process dictionary
 
--module(nkrole_role_cache).
+-module(nkrole_cache).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
@@ -35,7 +35,10 @@
 -define(MINIMUM_SET, 1000).
 
 -type call_opts() ::
-    #{timeout => pos_integer() | infinity}.
+    #{
+        cache_timeout => timeout(),
+        base_pids => gb_sets:set()
+    }.
 
 
 %% ===================================================================
@@ -102,7 +105,8 @@ init([]) ->
 do_init(ObjId, Role, RoleSpecs, Opts) ->
     BasePids1 = maps:get(base_pids, Opts, gb_sets:new()),
     BasePids2 = gb_sets:add_element(self(), BasePids1),
-    lager:debug("Started cache for ~p ~p", [Role, ObjId]),
+    lager:debug("Started cache for ~p ~p (~p)", [Role, ObjId, self()]),
+    % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids2)]),
     ok = proc_lib:init_ack({ok, self()}),
     ObjIds = find_objs(RoleSpecs, [], BasePids2),
     Length = length(ObjIds),

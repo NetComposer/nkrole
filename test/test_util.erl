@@ -25,14 +25,14 @@
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-insert(Test) ->
+insert(Set) ->
+    ?debugFmt("start insert for ~p", [Set]),
+    ets:delete_all_objects(nkrole_backend),
 	nkrole_proxy:stop_all(),
-	timer:sleep(100),
-    ets:delete_all_objects(nkrole_store),
+    wait_for_stop(600),
 	lists:foreach(
-		fun({ObjId, Roles}) -> ok = nkrole_store:put_obj(ObjId, Roles, none) end,
-		objs(Test)),
-	timer:sleep(100).
+		fun({ObjId, Roles}) -> ok = nkrole_backend:put_roles(ObjId, Roles) end,
+		objs(Set)).
 
 
 objs(set1) -> [
@@ -81,10 +81,10 @@ objs(set2) -> [
 
 populate(Levels) when Levels >= 3 ->
     ?debugMsg("Populating..."),
-    true = ets:delete_all_objects(nkrole_store),
+    true = ets:delete_all_objects(nkrole_backend),
     nkrole_proxy:stop_all(),
     wait_for_stop(600),
-    nkrole_store:put_obj(<<"root">>, #{member => make_childs(<<"R">>)}, none),
+    nkrole_backend:put_roles(<<"root">>, #{member => make_childs(<<"R">>)}),
     ?debugFmt("Creating ~p objects", [level_objs(Levels-1)]),
     [populate_level(Pos, <<"R">>, Levels-1) || Pos <- lists:seq(0,9)],
     ok.
@@ -92,16 +92,16 @@ populate(Levels) when Levels >= 3 ->
 
 populate_level(Pos, Base, 1) ->
     ObjId = make_pos(Pos, Base),
-    nkrole_store:put_obj(ObjId, #{}, none);
+    nkrole_backend:put_roles(ObjId, #{});
 
 populate_level(Pos, Base, 2) ->
     ObjId = make_pos(Pos, Base),
-    nkrole_store:put_obj(ObjId, #{member => make_childs_final(ObjId)}, none),
+    nkrole_backend:put_roles(ObjId, #{member => make_childs_final(ObjId)}),
     [populate_level(SubPos, ObjId, 1) || SubPos <- lists:seq(0,9)];
 
 populate_level(Pos, Base, Level) ->
     ObjId = make_pos(Pos, Base),
-    nkrole_store:put_obj(ObjId, #{member => make_childs(ObjId)}, none),
+    nkrole_backend:put_roles(ObjId, #{member => make_childs(ObjId)}),
     [populate_level(SubPos, ObjId, Level-1) || SubPos <- lists:seq(0,9)].
 
 
@@ -122,8 +122,12 @@ level_objs(Level) ->
 wait_for_stop(0) ->
     error(?LINE);
 wait_for_stop(N) ->
-    case nkrole_role_cache:get_all() of
-        [] -> ok;
-        _ -> timer:sleep(100), wait_for_stop(N-1)
+    case nkrole_cache:get_all() of
+        [] -> 
+            ok;
+        L ->
+            nkrole_proxy:stop_all(),
+            ?debugFmt("...wait for ~p caches to stop)", [length(L)]),
+            timer:sleep(100), wait_for_stop(N-1)
     end.
 

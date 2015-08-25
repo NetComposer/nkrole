@@ -19,20 +19,26 @@
 %% -------------------------------------------------------------------
 
 
--module(nkrole_store).
+-module(nkrole_backend).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
+-export([get_roles/1, put_roles/2, get_proxy/2, default_get_proxy/2]).
 -export([start_link/0]).
--export([get_obj/1, put_obj/3]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
 
--callback get_obj(nkrole:obj_id()) ->
-    {ok, nkrole:role_map(), nkrole:obj()} | {error, not_found|term()}.
 
--callback put_obj(nkrole:obj_id(), nkrole:role_map(), nkrole:obj()) ->
+-callback get_roles(nkrole:obj_id()) ->
+    {ok, nkrole:role_map()} | {error, not_found|term()}.
+
+-callback put_roles(nkrole:obj_id(), nkrole:role_map()) ->
     ok | {error, term()}.
+
+% Optional callback
+% -callback get_proxy(nkrole:obj_id(), map()) ->
+%     {ok, pid()} | {error, not_found|term()}.
+
 
 
 %% ===================================================================
@@ -49,45 +55,73 @@ start_link() ->
 
 
 %% @doc 
--spec get_obj(nkrole:obj_id()) ->
-    {ok, nkrole:role_map(), nkrole:obj()} | {error, not_found|term()}.
+-spec get_roles(nkrole:obj_id()) ->
+    {ok, nkrole:role_map()} | {error, not_found|term()}.
 
-get_obj(ObjId) ->
+get_roles(ObjId) ->
     case nkrole_app:get(backend) of
         ets ->
             case ets:lookup(?MODULE, ObjId) of
-                [{_, Roles, Obj}] -> {ok, Roles, Obj};
+                [{_, Roles}] -> {ok, Roles};
                 [] -> {error, not_found}
             end;
-        riak_core ->
-            case riak_core_metadata:get({?MODULE, none}, ObjId) of
-                {Roles, Obj} -> {ok, Roles, Obj};
-                undefined -> {error, not_found}
-            end;
         Module ->
-            case Module:get_obj(ObjId) of
-                {ok, Roles, Data} -> {ok, Roles, Data};
+            case Module:get_roles(ObjId) of
+                {ok, Roles} -> {ok, Roles};
                 {error, Error} -> {error, Error}
             end
     end.
 
 
 %% @doc
--spec put_obj(nkrole:obj_id(), nkrole:role_map(), nkrole:obj()) ->
+-spec put_roles(nkrole:obj_id(), nkrole:role_map()) ->
     ok | {error, term()}.
 
-put_obj(ObjId, Roles, Obj) ->
+put_roles(ObjId, Roles) ->
+    nkrole:stop(ObjId),
     case nkrole_app:get(backend) of
         ets ->
-            ets:insert(?MODULE, {ObjId, Roles, Obj}),
+            ets:insert(?MODULE, {ObjId, Roles}),
             ok;
-        riak_core ->
-            ok = riak_core_metadata:put({?MODULE, none}, ObjId, {Roles, Obj});
         Module ->
-            case Module:put_obj(ObjId, Roles, Obj) of
+            case Module:put_roles(ObjId, Roles) of
                 ok -> ok;
                 {error, Error} -> {error, Error}
             end
+    end.
+
+
+%% @doc Returns current proxy for object or start a new one
+-spec get_proxy(nkrole:obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, pid()} | {error, term()}.
+
+get_proxy(ObjId, Opts) ->
+    case nkrole_app:get(backend) of
+        ets ->
+            default_get_proxy(ObjId, Opts);
+        Module ->
+            case erlang:function_exported(Module, get_proxy, 2) of
+                true ->
+                    case Module:get_proxy(ObjId, Opts) of
+                        {ok, Pid} -> {ok, Pid};
+                        {error, Error} -> {error, Error}
+                    end;
+                false ->
+                    default_get_proxy(ObjId, Opts)
+            end
+    end.
+
+
+%% @doc Returns current proxy for object or start a new one
+-spec default_get_proxy(nkrole:obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, pid()} | {error, term()}.
+
+default_get_proxy(ObjId, Opts) ->
+    case nklib_proc:values({nkrole_proxy, ObjId}) of
+        [{_, Pid}|_] -> 
+            {ok, Pid};
+        [] -> 
+            nkrole_proxy:start_link(ObjId, Opts)
     end.
 
 
@@ -98,7 +132,6 @@ put_obj(ObjId, Roles, Obj) ->
 
 
 -record(state, {
-    backend :: ets | riak_core | atom()
 }).
 
 
@@ -108,7 +141,7 @@ put_obj(ObjId, Roles, Obj) ->
 
 init([]) ->
     ets:new(?MODULE, [named_table, public]),
-    {ok, #state{backend=nkrole_app:get(backend)}}.
+    {ok, #state{}}.
 
 
 %% @private
