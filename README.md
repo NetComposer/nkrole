@@ -31,19 +31,19 @@ $ make shell
 ```
 
 ```erlang
-> nkrole_backend:put_obj(root, #{member=>[{member, orgA}, {member, orgB}}]).
+> nkrole_backend:put_roles(root, #{member=>[{member, orgA}, {member, orgB}]}).
 ok
 
-> nkrole_backend:put_obj(orgA, #{member=>[{member, depA1}, {member, depA2}, {member, depA3}]).
+> nkrole_backend:put_roles(orgA, #{member=>[{member, depA1}, {member, depA2}, {member, depA3}]}).
 ok
 
-> nkrole_backend:put_obj(orgB, #{member=>[u10, {member, depB1}]).
+> nkrole_backend:put_roles(orgB, #{member=>[u10, {member, depB1}]}).
 ok
 ```
 
 and so on, or you could first create the objects and then apply the roles:
 ```erlang
-> nkrole_backed:put_obj(root, #{}).
+> nkrole_backend:put_roles(root, #{}).
 ok
 
 > nkrole:add_subrole(member, root, member, orgA, #{}).
@@ -65,14 +65,14 @@ ok
 Now we can query in many ways:
 ```erlang
 > % Get direct roles
-> nkrole:get_role_objs(orgB, #{}).
+> nkrole:get_role_objs(member, orgB, #{}).
 {ok, [u10, {member, depB1}]}
 
 > % Get nested roles
-> nkrole:find_role_objs(orgB, #{}).
+> nkrole:find_role_objs(member, orgB, #{}).
 {ok, [u10, u11, 12]}
 
-> nkrole:find_role_objs(root, #{}).
+> nkrole:find_role_objs(member, root, #{}).
 {ok,[u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08,u10,u11,u12]}.
 
 > % Check users
