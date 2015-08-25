@@ -3,3 +3,4 @@ deps
 dev
 ebin
 log
+.rebar
