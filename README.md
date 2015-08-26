@@ -119,14 +119,14 @@ This second example is very similar to the case for nested configuration, where 
 
 # Using custom backends
 
-Instead of the included ETS backend, you can define your own storage. You must create a module implementing the [nkrole_backend](src/nkrole_backend.erl) behaviour, defining `get_roles/1` and `put_roles/2` and pointing the `backend` configuration directive to your module.
+Instead of the included ETS backend, you can define your own storage. You must create a module implementing the [nkrole_backend](src/nkrole_backend.erl) behaviour, defining `get_roles/1` and `put_roles/2` and pointing the application `backend` configuration directive to your module, or using the `backend` option in most API calls.
 
-Remeber to stop all caches for an object after it is modified on storage, calling `nkrole:stop/1`. If you only modify some roles calling `nkrole:add_role/4`, `nkrole:add_subrole/5`, `nkrole:del_role/4` or `nkrole:del_subrole/5` you don't need to delete the cache. The invalid caches will be automatically deleted.
+NkROLES will stop all caches for an object before it is modified on storage, calling `nkrole:stop/1`. If you only modify some roles calling `nkrole:add_role/4`, `nkrole:add_subrole/5`, `nkrole:del_role/4` or `nkrole:del_subrole/5`, only invalid caches will be deleted.
 
 
 # Using a custom distribution mechanism
 
-You can also take the responsability for locating and starting object processes, for example to distribute them in the cluster using [NkDIST](https://github.com/Nekso/nkdist). You must implement the same callback module as for storage, and implement `get_proxy/2`.
+You can also take the responsability for locating and starting object processes, for example to distribute them in the cluster using [NkDIST](https://github.com/Nekso/nkdist). You must use the same callback module as for custuom storage, and implement the optional callback `get_proxy/2`.
 
 
 

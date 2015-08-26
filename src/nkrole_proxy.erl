@@ -40,7 +40,8 @@
     #{
         timeout => pos_integer() | infinity,
         proxy_timeout => pos_integer() | infinity,
-        cache_timeout => pos_integer() | infinity
+        cache_timeout => pos_integer() | infinity,
+        backend => module()
     }.
 
 
@@ -146,7 +147,7 @@ stop_all() ->
 
 %% @private 
 init({ObjId, Opts}) ->
-    case nkrole_backend:get_roles(ObjId) of
+    case nkrole_backend:get_roles(ObjId, Opts) of
         {ok, Roles} ->
             ok = proc_lib:init_ack({ok, self()}),
             nklib_proc:put(?MODULE, ObjId),

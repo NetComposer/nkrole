@@ -23,7 +23,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([get_roles/1, put_roles/2, get_proxy/2, default_get_proxy/2]).
+-export([get_roles/1, get_roles/2, put_roles/2, put_roles/3, get_proxy/2]).
 -export([start_link/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
@@ -59,18 +59,16 @@ start_link() ->
     {ok, nkrole:role_map()} | {error, not_found|term()}.
 
 get_roles(ObjId) ->
-    case nkrole_app:get(backend) of
-        ets ->
-            case ets:lookup(?MODULE, ObjId) of
-                [{_, Roles}] -> {ok, Roles};
-                [] -> {error, not_found}
-            end;
-        Module ->
-            case Module:get_roles(ObjId) of
-                {ok, Roles} -> {ok, Roles};
-                {error, Error} -> {error, Error}
-            end
-    end.
+    get_roles(ObjId, #{}).
+
+
+%% @doc 
+-spec get_roles(nkrole:obj_id(), nkrole:call_opts()) ->
+    {ok, nkrole:role_map()} | {error, not_found|term()}.
+
+get_roles(ObjId, Opts) ->
+    do_get_roles(get_backend(Opts), ObjId).
+
 
 
 %% @doc
@@ -78,17 +76,16 @@ get_roles(ObjId) ->
     ok | {error, term()}.
 
 put_roles(ObjId, Roles) ->
-    nkrole:stop(ObjId),
-    case nkrole_app:get(backend) of
-        ets ->
-            ets:insert(?MODULE, {ObjId, Roles}),
-            ok;
-        Module ->
-            case Module:put_roles(ObjId, Roles) of
-                ok -> ok;
-                {error, Error} -> {error, Error}
-            end
-    end.
+    put_roles(ObjId, Roles, #{}).
+
+
+%% @doc
+-spec put_roles(nkrole:obj_id(), nkrole:role_map(), nkrole:call_opts()) ->
+    ok | {error, term()}.
+
+put_roles(ObjId, Roles, Opts) ->
+    do_put_roles(get_backend(Opts), ObjId, Roles).
+
 
 
 %% @doc Returns current proxy for object or start a new one
@@ -96,33 +93,9 @@ put_roles(ObjId, Roles) ->
     {ok, pid()} | {error, term()}.
 
 get_proxy(ObjId, Opts) ->
-    case nkrole_app:get(backend) of
-        ets ->
-            default_get_proxy(ObjId, Opts);
-        Module ->
-            case erlang:function_exported(Module, get_proxy, 2) of
-                true ->
-                    case Module:get_proxy(ObjId, Opts) of
-                        {ok, Pid} -> {ok, Pid};
-                        {error, Error} -> {error, Error}
-                    end;
-                false ->
-                    default_get_proxy(ObjId, Opts)
-            end
-    end.
+    do_get_proxy(get_backend(Opts), ObjId, Opts).
 
 
-%% @doc Returns current proxy for object or start a new one
--spec default_get_proxy(nkrole:obj_id(), nkrole_proxy:call_opts()) ->
-    {ok, pid()} | {error, term()}.
-
-default_get_proxy(ObjId, Opts) ->
-    case nklib_proc:values({nkrole_proxy, ObjId}) of
-        [{_, Pid}|_] -> 
-            {ok, Pid};
-        [] -> 
-            nkrole_proxy:start_link(ObjId, Opts)
-    end.
 
 
 
@@ -191,3 +164,69 @@ terminate(_Reason, _State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Internal %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+%% @private
+-spec do_get_roles(nkrole:backend(), nkrole:obj_id()) ->
+    {ok, nkrole:role_map()} | {error, not_found|term()}.
+
+do_get_roles(ets, ObjId) ->
+    case ets:lookup(?MODULE, ObjId) of
+        [{_, Roles}] -> {ok, Roles};
+        [] -> {error, not_found}
+    end;
+
+do_get_roles(Module, ObjId) ->
+    case Module:get_roles(ObjId) of
+        {ok, Roles} -> {ok, Roles};
+        {error, Error} -> {error, Error}
+    end.
+
+
+%% @doc
+-spec do_put_roles(nkrole:backend(), nkrole:obj_id(), nkrole:role_map()) ->
+    ok | {error, term()}.
+
+do_put_roles(ets, ObjId, Roles) ->
+    nkrole:stop(ObjId),
+    ets:insert(?MODULE, {ObjId, Roles}),
+    ok;
+
+
+do_put_roles(Module, ObjId, Roles) ->
+    nkrole:stop(ObjId),
+    case Module:put_roles(ObjId, Roles) of
+        ok -> ok;
+        {error, Error} -> {error, Error}
+    end.
+
+
+%% @private
+-spec do_get_proxy(nkrole:backend(), nkrole:obj_id(), nkrole_proxy:call_opts()) ->
+    {ok, pid()} | {error, term()}.
+
+do_get_proxy(ets, ObjId, Opts) ->
+    case nklib_proc:values({nkrole_proxy, ObjId}) of
+        [{_, Pid}|_] -> 
+            {ok, Pid};
+        [] -> 
+            nkrole_proxy:start_link(ObjId, Opts)
+    end;
+
+do_get_proxy(Module, ObjId, Opts) ->
+    case erlang:function_exported(Module, get_proxy, 2) of
+        true ->
+            case Module:get_proxy(ObjId, Opts) of
+                {ok, Pid} -> {ok, Pid};
+                {error, Error} -> {error, Error}
+            end;
+        false ->
+            do_get_proxy(ets, ObjId, Opts)
+    end.
+
+
+%% @private 
+get_backend(Opts) -> 
+    case Opts of
+        #{backend:=Module} -> Module;
+        _ -> nkrole_app:get(backend)
+    end.
+        
