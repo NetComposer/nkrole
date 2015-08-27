@@ -51,12 +51,10 @@ start() ->
 %% @private OTP standard start callback
 start(_Type, _Args) ->
     ConfigSpec = #{
-        backend => atom,
         proxy_timeout => {integer, 1, none},
         cache_timeout => {integer, 1, none}
     },
     Defaults = #{
-        backend => ets,
         proxy_timeout => 180000,
         cache_timeout => 180000
     },

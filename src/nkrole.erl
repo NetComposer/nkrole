@@ -28,7 +28,8 @@
 -export([stop/1]).
 
 -export_type([obj_id/0, role/0, role_spec/0, role_map/0]).
--export_type([backend/0]).
+-export_type([opts/0, get_rolemap_fun/0]).
+
 
 %% ===================================================================
 %% Types
@@ -38,11 +39,20 @@
 
 -type role() :: term().
 
--type role_spec() :: obj_id() | {role(), obj_id()}.
+-type role_spec() :: obj_id() | #{role() => obj_id()}.
 
 -type role_map() :: #{role() => [role_spec()]}.
 
--type backend() :: ets | atom().
+-type get_rolemap_fun() :: fun((obj_id()) -> {ok, role_map()} | {error, term()}).
+
+-type opts() ::
+    #{
+        timeout => pos_integer() | infinity,
+        proxy_timeout => pos_integer() | infinity,
+        cache_timeout => pos_integer() | infinity,
+        get_rolemap_fun => get_rolemap_fun()
+    }.
+
 
 
 %% ===================================================================
@@ -51,7 +61,7 @@
 
 
 %% @doc Gets an object's roles
--spec get_roles(obj_id(), nkrole_proxy:call_opts()) ->
+-spec get_roles(obj_id(), opts()) ->
     {ok, [role()]} | {error, term()}.
 
 get_roles(ObjId, Opts) ->
@@ -59,7 +69,7 @@ get_roles(ObjId, Opts) ->
 
 
 %% @doc Gets an object's direct roles
--spec get_role_objs(role(), obj_id(), nkrole_proxy:call_opts()) ->
+-spec get_role_objs(role(), obj_id(), opts()) ->
     {ok, [role_spec()]} | {error, term()}.
 
 get_role_objs(Role, ObjId, Opts) ->
@@ -67,7 +77,7 @@ get_role_objs(Role, ObjId, Opts) ->
 
 
 %% @doc Gets an object's roles iterating at all levels
--spec find_role_objs(role(), obj_id(), nkrole_proxy:call_opts()) ->
+-spec find_role_objs(role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 find_role_objs(Role, ObjId, Opts) ->
@@ -80,7 +90,7 @@ find_role_objs(Role, ObjId, Opts) ->
 
 
 %% @doc Gets an object's roles iterating at all levels
--spec has_role(obj_id(), role(), obj_id(), nkrole_proxy:call_opts()) ->
+-spec has_role(obj_id(), role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 has_role(ObjId, Role, Target, Opts) ->
@@ -93,7 +103,7 @@ has_role(ObjId, Role, Target, Opts) ->
 
 
 %% @doc Adds a role to an object
--spec add_role(role(), obj_id(), obj_id(), nkrole_proxy:call_opts()) ->
+-spec add_role(role(), obj_id(), obj_id(), opts()) ->
     ok | {error, term()}.
 
 add_role(Role, Base, ObjId, Opts) ->
@@ -102,15 +112,16 @@ add_role(Role, Base, ObjId, Opts) ->
 
 %% @doc Adds a role to an object
 -spec add_subrole(role(), obj_id(), role(), 
-                  obj_id(), nkrole_proxy:call_opts()) ->
+                  obj_id(), opts()) ->
     ok | {error, term()}.
 
 add_subrole(Role, Base, SubRole, ObjId, Opts) ->
-    nkrole_proxy:do_call(Base, {add_role, Role, {SubRole, ObjId}}, Opts).
+    Spec = maps:put(SubRole, ObjId, #{}),
+    nkrole_proxy:do_call(Base, {add_role, Role, Spec}, Opts).
 
 
 %% @doc Adds a role to an object
--spec del_role(role(), obj_id(), obj_id(), nkrole_proxy:call_opts()) ->
+-spec del_role(role(), obj_id(), obj_id(), opts()) ->
     ok | {error, term()}.
 
 del_role(Role, Base, ObjId, Opts) ->
@@ -119,11 +130,12 @@ del_role(Role, Base, ObjId, Opts) ->
 
 %% @doc Adds a role to an object
 -spec del_subrole(role(), obj_id(), role(), 
-                  obj_id(), nkrole_proxy:call_opts()) ->
+                  obj_id(), opts()) ->
     ok | {error, term()}.
 
 del_subrole(Role, Base, SubRole, ObjId, Opts) ->
-    nkrole_proxy:do_call(Base, {del_role, Role, {SubRole, ObjId}}, Opts).
+    Spec = maps:put(SubRole, ObjId, #{}),
+    nkrole_proxy:do_call(Base, {del_role, Role, Spec}, Opts).
 
 
 %% @doc

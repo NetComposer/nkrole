@@ -27,17 +27,23 @@
 
 -export([start_link/4, stop/1, get_obj_ids/2, has_obj_id/3]).
 -export([get_all/0]).
--export([do_init/4, init/1, terminate/2, code_change/3, handle_call/3,
+-export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
 
 -include("nkrole.hrl").
 
 -define(MINIMUM_SET, 1000).
 
--type call_opts() ::
+-type start_opts() ::
     #{
         cache_timeout => timeout(),
         base_pids => gb_sets:set()
+    }.
+
+
+-type call_opts() ::
+    #{
+        timeout => timeout()
     }.
 
 
@@ -46,12 +52,11 @@
 %% ===================================================================
 
 %% @doc Starts a new cache
--spec start_link(nkrole:obj_id(), nkrole:role(), [nkrole:role_spec()],
-                 #{cache_timeout => pos_integer()}) ->
+-spec start_link(nkrole:obj_id(), nkrole:role(), [nkrole:role_spec()], start_opts()) ->
     {ok, pid()}.
 
 start_link(ObjId, Role, RoleSpecs, Opts) ->
-    proc_lib:start_link(?MODULE, do_init, [ObjId, Role, RoleSpecs, Opts]).
+    proc_lib:start_link(?MODULE, init, [{ObjId, Role, RoleSpecs, Opts}]).
 
 
 %% @doc Stops a cache
@@ -67,8 +72,7 @@ stop(Pid) ->
     {ok, [nkrole:obj_id()]} | {error, term()}.
 
 get_obj_ids(Pid, Opts) ->
-    Timeout = maps:get(timeout, Opts, 5000),
-    nklib_util:call(Pid, get_obj_ids, Timeout).
+    nklib_util:call(Pid, get_obj_ids, Opts).
 
 
 %% @doc Gets the list of objects
@@ -76,8 +80,7 @@ get_obj_ids(Pid, Opts) ->
     {ok, [nkrole:obj_id()]} | {error, term()}.
 
 has_obj_id(Pid, ObjId, Opts) ->
-    Timeout = maps:get(timeout, Opts, 5000),
-    nklib_util:call(Pid, {has_obj_id, ObjId}, Timeout).
+    nklib_util:call(Pid, {has_obj_id, ObjId}, Opts).
 
 
 %% @private
@@ -98,16 +101,16 @@ get_all() ->
 }).
 
 
-%% Not used
-init([]) ->
+%% @private
+-spec init({nkrole:obj_id(), nkrole:role(), [nkrole:role_spec()], start_opts()}) ->
     ok.
 
-do_init(ObjId, Role, RoleSpecs, Opts) ->
+init({ObjId, Role, RoleSpecs, Opts}) ->
+    ok = proc_lib:init_ack({ok, self()}),
     BasePids1 = maps:get(base_pids, Opts, gb_sets:new()),
     BasePids2 = gb_sets:add_element(self(), BasePids1),
     lager:debug("Started cache for ~p ~p (~p)", [Role, ObjId, self()]),
     % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids2)]),
-    ok = proc_lib:init_ack({ok, self()}),
     ObjIds = find_objs(RoleSpecs, [], BasePids2),
     Length = length(ObjIds),
     nklib_proc:put(?MODULE, {ObjId, Role, Length}),
@@ -187,7 +190,6 @@ code_change(_OldVsn, State, _Extra) ->
     ok.
 
 terminate(_Reason, _State) ->  
-    lager:debug("Stop cache"),
     ok.
 
 
@@ -199,20 +201,26 @@ terminate(_Reason, _State) ->
 find_objs([], ObjIds, _History) ->
     lists:flatten(lists:reverse(ObjIds));
 
-find_objs([{SubRole, ObjId}|Rest], ObjIds, PidsSet) ->
-    case gb_sets:is_element(ObjId, PidsSet) of
-        true ->
-            lager:notice("Obj ~p is in map, skipping", [ObjId]),
-            find_objs(Rest, ObjIds, PidsSet);
-        false ->
-            case find_subrole(SubRole, ObjId, PidsSet) of
-                {ok, SubObjIds, CachePid} ->
-                    PidsSet1 = gb_sets:add_element(CachePid, PidsSet),
-                    monitor(process, CachePid),
-                    find_objs(Rest, [SubObjIds|ObjIds], PidsSet1);
-                error ->
-                    find_objs(Rest, ObjIds, PidsSet)
-            end
+find_objs([Map|Rest], ObjIds, PidsSet) when is_map(Map) ->
+    case maps:to_list(Map) of
+        [{SubRole, ObjId}] ->
+            case gb_sets:is_element(ObjId, PidsSet) of
+                true ->
+                    lager:notice("Obj ~p is in path, skipping", [ObjId]),
+                    find_objs(Rest, ObjIds, PidsSet);
+                false ->
+                    case find_subrole(SubRole, ObjId, PidsSet) of
+                        {ok, SubObjIds, CachePid} ->
+                            PidsSet1 = gb_sets:add_element(CachePid, PidsSet),
+                            monitor(process, CachePid),
+                            find_objs(Rest, [SubObjIds|ObjIds], PidsSet1);
+                        error ->
+                            find_objs(Rest, ObjIds, PidsSet)
+                    end
+            end;
+        _ ->
+            lager:warning("Invalid role spec: ~p", [Map]),
+            find_objs(Rest, ObjIds, PidsSet)
     end;
 
 find_objs([ObjId|Rest], ObjIds, PidsSet) ->

@@ -24,7 +24,6 @@
 -behaviour(supervisor).
 
 -export([init/1, start_link/0]).
-% -export([start_tasks_sup/0]).
 
 -include("nkrole.hrl").
 
@@ -49,11 +48,5 @@ start_link() ->
 %% @private
 init(ChildSpecs) ->
     {ok, ChildSpecs}.
-
-
-% %% @private
-% start_tasks_sup() ->
-%     supervisor:start_link({local, nkrole_tasks_sup}, 
-%                           ?MODULE, {{one_for_one, 10, 60}, []}).
 
 

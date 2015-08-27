@@ -55,46 +55,47 @@ roles() ->
   timer:sleep(100),
 	
 	{ok, [member]} = get_roles(root, #{}),
-	{ok, [{member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+	{ok, [#{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 
 	ok = add_role(member, root, u01, #{}),
-	{ok,[u01, {member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+	{ok,[u01, #{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 	
 	ok = add_role(other, root, u02, #{}),
 	{ok, [member, other]} = get_roles(root, #{}),
 	{ok, [u02]} = get_role_objs(other, root, #{}),
 
 	ok = add_subrole(member, root, other, u03, #{}),
-	{ok, [{other, u03}, u01, {member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+  {ok, [#{other:=u03}, u01, #{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 
 	ok = add_subrole(other, root, member, u03, #{}),
-	{ok, [{other, u03}, u01, {member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
-	{ok, [{member, u03}, u02]} = get_role_objs(other, root, #{}),
+	{ok, [#{other:=u03}, u01, #{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
+	{ok, [#{member:= u03}, u02]} = get_role_objs(other, root, #{}),
 
 	ok = add_role(other, root, u03, #{}),
-	{ok, [u03, {member,u03}, u02]} = get_role_objs(other, root, #{}),
+	{ok, [u03, #{member:=u03}, u02]} = get_role_objs(other, root, #{}),
 
 	ok = add_subrole(other, root, member, u03, #{}),
-	{ok, [u03, {member,u03}, u02]} = get_role_objs(other, root, #{}),
+	{ok, [u03, #{member:=u03}, u02]} = get_role_objs(other, root, #{}),
 	
 	ok = add_role(other, root, u03, #{}),
-	{ok, [u03, {member,u03}, u02]} = get_role_objs(other, root, #{}),
+	{ok, [u03, #{member:=u03}, u02]} = get_role_objs(other, root, #{}),
 
 	ok = del_role(member, root, u01, #{}),
 	ok = del_role(member, root, u03, #{}),
-	{ok, [{other, u03}, {member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+	{ok, [#{other:=u03}, #{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 
 	ok = del_subrole(member, root, member, u03, #{}),
-	{ok, [{other, u03}, {member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+	{ok, [#{other:=u03}, #{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 
 	ok = del_subrole(member, root, other, u03, #{}),
-	{ok, [{member,orgA}, {member,orgB}]} = get_role_objs(member, root, #{}),
+	{ok, [#{member:=orgA}, #{member:=orgB}]} = get_role_objs(member, root, #{}),
 	ok.
 
 
 caches() ->
   ?debugMsg("Starting Caches test"),
 	test_util:insert(set1),
+  timer:sleep(100),
 
  	{ok, [u01,u02,depA21,depA22,u03,u04,u05,u06,u07,u08,u10,u11,u12] = RootMembers} =
 		find_role_objs(member, root, #{}),
