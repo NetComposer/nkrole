@@ -27,11 +27,18 @@
 -export([get_proxy/2, proxy_op/3, cache_op/4, stop/1, stop_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
+-export_type([op/0]).
+
 
 -include("nkrole.hrl").
 
 -define(CALL_TRIES, 3).
 
+-type op() ::
+    get_roles | {get_role_objs, nkrole:role()} |  
+    {get_cache, nkrole:role(), gb_sets:set()} | 
+    {add_role, nkrole:role(), nkrole:role_spec()} |
+    {del_role, nkrole:role(), nkrole:role_spec()}.
 
 
 %% ===================================================================
@@ -56,7 +63,7 @@ start(ObjId, RoleMap, Opts) ->
 
 
 %% @private
--spec proxy_op(nkrole:obj_id(), term(), nkrole:opts()) ->
+-spec proxy_op(nkrole:obj_id(), op(), nkrole:opts()) ->
     {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
 proxy_op(ObjId, Op, Opts) ->
@@ -64,7 +71,7 @@ proxy_op(ObjId, Op, Opts) ->
 
 
 %% @private
--spec proxy_op(nkrole:obj_id(), term(), nkrole:opts(), pos_integer()) ->
+-spec proxy_op(nkrole:obj_id(), op(), nkrole:opts(), pos_integer()) ->
     {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
 proxy_op(ObjId, Op, Opts, Tries) ->
@@ -89,15 +96,15 @@ proxy_op(ObjId, Op, Opts, Tries) ->
 
 
 %% @private
--spec cache_op(nkrole:obj_id(), nkrole:role(), term(), nkrole:opts()) ->
-    {ok, term(), pid()} | {error, term()}.
+-spec cache_op(nkrole:obj_id(), nkrole:role(), nkrole_cache:op(), nkrole:opts()) ->
+    {ok, term(), pid(), pid()} | {error, term()}.
 
 cache_op(ObjId, Role, Op, Opts) ->
     cache_op(ObjId, Role, Op, Opts, ?CALL_TRIES).
 
 
 %% @private
--spec cache_op(nkrole:obj_id(), nkrole:role(), term(), 
+-spec cache_op(nkrole:obj_id(), nkrole:role(), nkrole_cache:op(), 
                nkrole:opts() | #{base_pids=>gb_sets:set()}, pos_integer()) ->
     {ok, term(), pid(), pid()} | {error, term()}.
 

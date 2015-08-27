@@ -26,6 +26,7 @@
 -export([find_role_objs/3, has_role/4]).
 -export([add_role/4, add_subrole/5, del_role/4, del_subrole/5]).
 -export([stop/1]).
+-export([proxy_op/3, cache_op/4]).
 
 -export_type([obj_id/0, role/0, role_spec/0, role_map/0]).
 -export_type([opts/0, get_rolemap_fun/0]).
@@ -141,6 +142,9 @@ stop(ObjId) ->
 
 
 %% @private
+-spec proxy_op(obj_id(), nkrole_proxy:op(), opts()) ->
+    ok | {ok, term()} | {error, term()}.
+
 proxy_op(ObjId, Op, Opts) ->
     case nkrole_proxy:proxy_op(ObjId, Op, Opts) of
         {ok, _ProxyPid} -> ok;
@@ -148,6 +152,10 @@ proxy_op(ObjId, Op, Opts) ->
         {error, Error} -> {error, Error}
     end.
 
+
+%% @private
+-spec cache_op(obj_id(), nkrole:role(), nkrole_cache:op(), opts()) ->
+    {ok, term()} | {error, term()}.
 
 %% @private
 cache_op(ObjId, Role, Op, Opts) ->

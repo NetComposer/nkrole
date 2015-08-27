@@ -28,6 +28,7 @@
 -export([start_link/4, stop/1, get_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
+-export_type([op/0]).
 
 -include("nkrole.hrl").
 
@@ -39,6 +40,10 @@
         base_pids => gb_sets:set(),
         get_rolemap_fun => nkrole:get_rolemap_fun()
     }.
+
+-type op() ::
+    get_obj_ids | {has_obj_id, nkrole:obj_id()}.
+
 
 
 

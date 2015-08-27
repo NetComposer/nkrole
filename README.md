@@ -109,7 +109,7 @@ ok
 Now we can query:
 ```erlang
 > nkrole:get_role_objs(head, u05, #{}).
-{ok,[depA22,{head,depA22}]}
+{ok,[depA22,#{head=>depA22}]}
 
 > nkrole:find_role_objs(head, u05, #{}).
 {ok,[depA22, depA2, orgA, root]}
