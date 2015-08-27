@@ -88,7 +88,7 @@ do_call(ObjId, Op, Opts, Tries) ->
                 {error, {exit, _}} when Tries > 1 ->
                     lager:notice("NkROLE Proxy call exit (~p), retrying", [Op]),
                     timer:sleep(100),
-                    do_call(ObjId, Op, Opts, Tries);
+                    do_call(ObjId, Op, Opts, Tries-1);
                 Other ->
                     Other
             end;
