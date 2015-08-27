@@ -24,18 +24,14 @@
 -behaviour(gen_server).
 
 -export([start_link/3, start/3]).
--export([get_cache/3, get_proxy/2, do_call/3, do_cast/3, stop/1, stop_all/0]).
+-export([get_proxy/2, proxy_op/3, cache_op/4, stop/1, stop_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
 
 -include("nkrole.hrl").
 
--define(CALL_TRIES, 5).
+-define(CALL_TRIES, 3).
 
-
-%% ===================================================================
-%% Types
-%% ===================================================================
 
 
 %% ===================================================================
@@ -59,38 +55,33 @@ start(ObjId, RoleMap, Opts) ->
     gen_server:start_link(?MODULE, {ObjId, RoleMap, Opts}, []).
 
 
-%% @doc Gets a role cache
--spec get_cache(nkrole:role(), nkrole:obj_id(), nkrole:opts()) ->
-    {ok, pid()} | {error, term()}.
+%% @private
+-spec proxy_op(nkrole:obj_id(), term(), nkrole:opts()) ->
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
-get_cache(Role, ObjId, Opts) ->
-    BasePids = maps:get(base_pids, Opts, gb_sets:new()),
-    do_call(ObjId, {get_cache, Role, BasePids}, Opts).
+proxy_op(ObjId, Op, Opts) ->
+    proxy_op(ObjId, Op, Opts, ?CALL_TRIES).
 
 
 %% @private
--spec do_call(nkrole:obj_id(), term(), nkrole:opts()) ->
-    {ok, term()} | {error, term()}.
+-spec proxy_op(nkrole:obj_id(), term(), nkrole:opts(), pos_integer()) ->
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
-do_call(ObjId, Op, Opts) ->
-    do_call(ObjId, Op, Opts, ?CALL_TRIES).
-
-
-%% @private
--spec do_call(nkrole:obj_id(), term(), nkrole:opts(), pos_integer()) ->
-    {ok, term()} | {error, term()}.
-
-do_call(ObjId, Op, Opts, Tries) ->
+proxy_op(ObjId, Op, Opts, Tries) ->
     case get_proxy(ObjId, Opts) of
-        {ok, Pid} ->
-            % If the proxy stops just after getting its pid
-            case nklib_util:call(Pid, Op, Opts) of
+        {ok, ProxyPid} ->
+            % Check if the proxy stops just after getting its pid
+            case nklib_util:call(ProxyPid, Op, Opts) of
+                ok ->
+                    {ok, ProxyPid};
+                {ok, Reply} ->
+                    {ok, Reply, ProxyPid};
                 {error, {exit, _}} when Tries > 1 ->
                     lager:notice("NkROLE Proxy call exit (~p), retrying", [Op]),
                     timer:sleep(100),
-                    do_call(ObjId, Op, Opts, Tries-1);
-                Other ->
-                    Other
+                    proxy_op(ObjId, Op, Opts, Tries-1);
+                {error, Error} ->
+                    {error, Error}
             end;
         {error, Error} ->
             {error, Error}
@@ -98,13 +89,33 @@ do_call(ObjId, Op, Opts, Tries) ->
 
 
 %% @private
--spec do_cast(nkrole:obj_id(), term(), nkrole:opts()) ->
-    {ok, term()} | {error, term()}.
+-spec cache_op(nkrole:obj_id(), nkrole:role(), term(), nkrole:opts()) ->
+    {ok, term(), pid()} | {error, term()}.
 
-do_cast(ObjId, Op, Opts) ->
-    case get_proxy(ObjId, Opts) of
-        {ok, Pid} ->
-            gen_server:cast(Pid, Op);
+cache_op(ObjId, Role, Op, Opts) ->
+    cache_op(ObjId, Role, Op, Opts, ?CALL_TRIES).
+
+
+%% @private
+-spec cache_op(nkrole:obj_id(), nkrole:role(), term(), 
+               nkrole:opts() | #{base_pids=>gb_sets:set()}, pos_integer()) ->
+    {ok, term(), pid(), pid()} | {error, term()}.
+
+cache_op(ObjId, Role, Op, Opts, Tries) ->
+    BasePids = maps:get(base_pids, Opts, gb_sets:new()),
+    case proxy_op(ObjId, {get_cache, Role, BasePids}, Opts) of
+        {ok, CachePid, ProxyPid} ->
+            % Check if the cache stops just after getting its pid
+            case nklib_util:call(CachePid, Op, Opts) of
+                {ok, Reply} ->
+                    {ok, Reply, ProxyPid, CachePid};
+                {error, {exit, _}} when Tries > 1 ->
+                    lager:notice("NkROLE Proxy Cache call exit (~p), retrying", [Op]),
+                    timer:sleep(100),
+                    cache_op(Role, ObjId, Op, Opts, Tries-1);
+                {error, Error} ->
+                    {error, Error}
+            end;
         {error, Error} ->
             {error, Error}
     end.
@@ -115,6 +126,9 @@ do_cast(ObjId, Op, Opts) ->
     {ok, pid()} | {error, term()}.
 
 get_proxy(Pid, _Opts) when is_pid(Pid) ->
+    {ok, Pid};
+
+get_proxy(_, #{proxy_pid:=Pid}) ->
     {ok, Pid};
 
 get_proxy(ObjId, Opts) ->
@@ -199,38 +213,14 @@ handle_call(get_roles, _From, #state{rolemap=RoleMap}=State) ->
 handle_call({get_role_objs, Role}, _From, #state{rolemap=RoleMap}=State) ->
     reply({ok, maps:get(Role, RoleMap, [])}, State);
 
+handle_call({get_cache, Role}, {CallerPid, _}, State) ->
+    BasePids = gb_sets:new(),
+    {Reply, State1} = get_cache(Role, BasePids, CallerPid, State),
+    reply(Reply, State1);
+
 handle_call({get_cache, Role, BasePids}, {CallerPid, _}, State) ->
-    #state{
-        obj_id = ObjId, 
-        rolemap = RoleMap, 
-        caches = Caches, 
-        cache_timeout = Timeout,
-        get_fun = GetFun
-    } = State,
-    case maps:find(Role, Caches) of
-        {ok, CallerPid} ->
-            reply({error, looped_call}, State);
-        {ok, Pid} ->
-            case gb_sets:is_element(Pid, BasePids) of
-                false ->
-                    reply({ok, Pid}, State);
-                true ->
-                    reply({error, looped_path}, State)
-            end;
-        error ->
-            % lager:notice("Staring proxy for ~p (~p)", [ObjId, self()]),
-            % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids)]),
-            RoleList = maps:get(Role, RoleMap, []),
-            Opts = #{
-                cache_timeout => Timeout, 
-                base_pids => BasePids,
-                get_rolemap_fun => GetFun
-            },
-            {ok, Pid} = nkrole_cache:start_link(ObjId, Role, RoleList, Opts),
-            monitor(process, Pid),
-            Caches1 = maps:put(Role, Pid, Caches),
-            reply({ok, Pid}, State#state{caches=Caches1})
-    end;
+    {Reply, State1} = get_cache(Role, BasePids, CallerPid, State),
+    reply(Reply, State1);
 
 handle_call({add_role, Role, Spec}, _From, #state{rolemap=RoleMap}=State) ->
     RoleObjs = maps:get(Role, RoleMap, []),
@@ -317,6 +307,42 @@ terminate(_Reason, #state{obj_id=ObjId, caches=Caches}) ->
 %% gen_server behaviour
 %% ===================================================================
 
+-spec get_cache(nkrole:role(), gb_sets:set(), pid(), #state{}) ->
+    {{ok, pid()}|{error, term()}, #state{}}.
+
+get_cache(Role, BasePids, CallerPid, State) ->
+    #state{
+        obj_id = ObjId, 
+        rolemap = RoleMap, 
+        caches = Caches, 
+        cache_timeout = Timeout,
+        get_fun = GetFun
+    } = State,
+    case maps:find(Role, Caches) of
+        {ok, CallerPid} ->
+            {{error, looped_call}, State};
+        {ok, Pid} ->
+            case gb_sets:is_element(Pid, BasePids) of
+                false ->
+                    {{ok, Pid}, State};
+                true ->
+                    {{error, looped_path}, State}
+            end;
+        error ->
+            % lager:notice("Staring proxy for ~p (~p)", [ObjId, self()]),
+            % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids)]),
+            RoleList = maps:get(Role, RoleMap, []),
+            Opts = #{
+                cache_timeout => Timeout, 
+                base_pids => BasePids,
+                get_rolemap_fun => GetFun
+            },
+            {ok, Pid} = nkrole_cache:start_link(ObjId, Role, RoleList, Opts),
+            monitor(process, Pid),
+            Caches1 = maps:put(Role, Pid, Caches),
+            {{ok, Pid}, State#state{caches=Caches1}}
+    end.
+
 
 %% @private
 invalidate_role(Role, #state{obj_id=ObjId, caches=Caches}=State) ->
@@ -340,6 +366,18 @@ noreply(#state{proxy_timeout=Timeout}=State) ->
     {noreply, State, Timeout}.
 
 
+
+%% @private
+-spec do_cast(nkrole:obj_id(), term(), nkrole:opts()) ->
+    {ok, term()} | {error, term()}.
+
+do_cast(ObjId, Op, Opts) ->
+    case get_proxy(ObjId, Opts) of
+        {ok, Pid} ->
+            gen_server:cast(Pid, Op);
+        {error, Error} ->
+            {error, Error}
+    end.
 
 
 

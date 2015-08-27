@@ -25,8 +25,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([start_link/4, stop/1, get_obj_ids/2, has_obj_id/3]).
--export([get_all/0]).
+-export([start_link/4, stop/1, get_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
 
@@ -41,11 +40,6 @@
         get_rolemap_fun => nkrole:get_rolemap_fun()
     }.
 
-
--type call_opts() ::
-    #{
-        timeout => timeout()
-    }.
 
 
 %% ===================================================================
@@ -66,22 +60,6 @@ start_link(ObjId, Role, RoleSpecs, Opts) ->
 
 stop(Pid) ->
     gen_server:cast(Pid, stop).
-
-
-%% @doc Gets the list of objects
--spec get_obj_ids(pid(), call_opts()) ->
-    {ok, [nkrole:obj_id()]} | {error, term()}.
-
-get_obj_ids(Pid, Opts) ->
-    nklib_util:call(Pid, get_obj_ids, Opts).
-
-
-%% @doc Gets the list of objects
--spec has_obj_id(pid(), nkrole:obj_id(), call_opts()) ->
-    {ok, [nkrole:obj_id()]} | {error, term()}.
-
-has_obj_id(Pid, ObjId, Opts) ->
-    nklib_util:call(Pid, {has_obj_id, ObjId}, Opts).
 
 
 %% @private
@@ -231,16 +209,13 @@ find_objs([ObjId|Rest], ObjIds, GetFun, PidsSet) ->
 
 %% @private
 find_subrole(SubRole, ObjId, GetFun, PidsSet) ->
-    Opts = #{base_pids=>PidsSet, get_rolemap_fun=>GetFun},
-    case catch nkrole_proxy:get_cache(SubRole, ObjId, Opts) of
-        {ok, CachePid} ->
-            case get_obj_ids(CachePid, #{timeout=>180000}) of
-                {ok, ObjIds} ->
-                    {ok, ObjIds, CachePid};
-                Error ->
-                    lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
-                    error
-            end;
+    Opts = #{get_rolemap_fun=>GetFun, base_pids=>PidsSet, timeout=>180000},
+    case nkrole_proxy:cache_op(ObjId, SubRole, get_obj_ids, Opts) of
+        {ok, ObjIds, _ProxyPid, CachePid} ->
+            {ok, ObjIds, CachePid};
+        {error, Error} ->
+            lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
+            error;
         Error ->
             lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
             error

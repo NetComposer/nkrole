@@ -50,7 +50,8 @@
         timeout => pos_integer() | infinity,
         proxy_timeout => pos_integer() | infinity,
         cache_timeout => pos_integer() | infinity,
-        get_rolemap_fun => get_rolemap_fun()
+        get_rolemap_fun => get_rolemap_fun(),
+        proxy_pid => pid()
     }.
 
 
@@ -65,7 +66,7 @@
     {ok, [role()]} | {error, term()}.
 
 get_roles(ObjId, Opts) ->
-    nkrole_proxy:do_call(ObjId, get_roles, Opts).
+    proxy_op(ObjId, get_roles, Opts).
 
 
 %% @doc Gets an object's direct roles
@@ -73,33 +74,23 @@ get_roles(ObjId, Opts) ->
     {ok, [role_spec()]} | {error, term()}.
 
 get_role_objs(Role, ObjId, Opts) ->
-    nkrole_proxy:do_call(ObjId, {get_role_objs, Role}, Opts).
+    proxy_op(ObjId, {get_role_objs, Role}, Opts).
 
 
-%% @doc Gets an object's roles iterating at all levels
+%% @doc Gets all nested objects having a role over and object
 -spec find_role_objs(role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 find_role_objs(Role, ObjId, Opts) ->
-    case nkrole_proxy:get_cache(Role, ObjId, Opts) of
-        {ok, Pid} ->
-            nkrole_cache:get_obj_ids(Pid, Opts);
-        {error, Error} ->
-            {error, Error}
-    end.
+    cache_op(ObjId, Role, get_obj_ids, Opts).
 
 
-%% @doc Gets an object's roles iterating at all levels
+%% @doc Check if ObjId has Role over Target
 -spec has_role(obj_id(), role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 has_role(ObjId, Role, Target, Opts) ->
-    case nkrole_proxy:get_cache(Role, Target, Opts) of
-        {ok, Pid} ->
-            nkrole_cache:has_obj_id(Pid, ObjId, Opts);
-        {error, Error} ->
-            {error, Error}
-    end.
+    cache_op(Target, Role, {has_obj_id, ObjId}, Opts).
 
 
 %% @doc Adds a role to an object
@@ -107,17 +98,16 @@ has_role(ObjId, Role, Target, Opts) ->
     ok | {error, term()}.
 
 add_role(Role, Base, ObjId, Opts) ->
-    nkrole_proxy:do_call(Base, {add_role, Role, ObjId}, Opts).
+    proxy_op(Base, {add_role, Role, ObjId}, Opts).
 
 
-%% @doc Adds a role to an object
--spec add_subrole(role(), obj_id(), role(), 
-                  obj_id(), opts()) ->
+%% @doc Objects having SubRole over ObjId have Role over Base
+-spec add_subrole(role(), obj_id(), role(), obj_id(), opts()) ->
     ok | {error, term()}.
 
 add_subrole(Role, Base, SubRole, ObjId, Opts) ->
     Spec = maps:put(SubRole, ObjId, #{}),
-    nkrole_proxy:do_call(Base, {add_role, Role, Spec}, Opts).
+    proxy_op(Base, {add_role, Role, Spec}, Opts).
 
 
 %% @doc Adds a role to an object
@@ -125,17 +115,16 @@ add_subrole(Role, Base, SubRole, ObjId, Opts) ->
     ok | {error, term()}.
 
 del_role(Role, Base, ObjId, Opts) ->
-    nkrole_proxy:do_call(Base, {del_role, Role, ObjId}, Opts).
+    proxy_op(Base, {del_role, Role, ObjId}, Opts).
 
 
 %% @doc Adds a role to an object
--spec del_subrole(role(), obj_id(), role(), 
-                  obj_id(), opts()) ->
+-spec del_subrole(role(), obj_id(), role(), obj_id(), opts()) ->
     ok | {error, term()}.
 
 del_subrole(Role, Base, SubRole, ObjId, Opts) ->
     Spec = maps:put(SubRole, ObjId, #{}),
-    nkrole_proxy:do_call(Base, {del_role, Role, Spec}, Opts).
+    proxy_op(Base, {del_role, Role, Spec}, Opts).
 
 
 %% @doc
@@ -144,5 +133,27 @@ del_subrole(Role, Base, SubRole, ObjId, Opts) ->
 
 stop(ObjId) ->
     nkrole_proxy:stop(ObjId).
+
+
+%% ===================================================================
+%% Public
+%% ===================================================================
+
+
+%% @private
+proxy_op(ObjId, Op, Opts) ->
+    case nkrole_proxy:proxy_op(ObjId, Op, Opts) of
+        {ok, _ProxyPid} -> ok;
+        {ok, Reply, _ProxyPid} -> {ok, Reply};
+        {error, Error} -> {error, Error}
+    end.
+
+
+%% @private
+cache_op(ObjId, Role, Op, Opts) ->
+    case nkrole_proxy:cache_op(ObjId, Role, Op, Opts) of
+        {ok, Reply, _ProxyPid, _CachePid} -> {ok, Reply};
+        {error, Error} -> {error, Error}
+    end.
 
 

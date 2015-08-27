@@ -18,7 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 
--module(torture_test).
+-module(loop_test).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -compile([export_all]).
@@ -28,7 +28,7 @@
 -import(nkrole, [find_role_objs/3]).
 
 
-torture_test_() ->
+loop_test_() ->
   	{setup, 
     	fun() -> 
     		ok = nkrole_app:start()
@@ -38,7 +38,7 @@ torture_test_() ->
 		end,
 	    fun(_) ->
 		    [
-		    	fun() -> torture() end
+		    	fun() -> loop() end
 			]
 		end
   	}.
@@ -46,7 +46,7 @@ torture_test_() ->
 
 
 
-torture() ->
+loop() ->
     test_util:insert(set2),
     lager:notice("The following messages about looped errors are expected"),
     {ok, [obj_1, obj_2, obj_1, obj_2]} = find_role_objs(member, obj_1, #{}),

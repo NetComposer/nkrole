@@ -242,11 +242,10 @@ check_cached(ObjId, Role, none) ->
 	none = get_cache(ObjId, Role);
 
 check_cached(ObjId, Role, List) ->
-	Pid = get_cache(ObjId, Role),
-	case nkrole_cache:get_obj_ids(Pid, #{timeout=>5000}) of
-		{ok, List} -> 
+	case nkrole_proxy:cache_op(ObjId, Role, get_obj_ids, #{}) of
+		{ok, List, _, _} -> 
 			ok;
-		{ok, Other} -> 
+		{ok, Other, _, _} -> 
 			lager:warning("\nList: ~p\nOthe: ~p", [List, Other]),
 			error(?LINE)
 	end.
