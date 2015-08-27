@@ -23,7 +23,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([get_rolemap/1, put_rolemap/2]).
+-export([get_rolemap/1, put_rolemap/2, get_rolemap_fun/1]).
 -export([start_link/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
@@ -62,6 +62,14 @@ put_rolemap(ObjId, RoleMap) ->
     nkrole:stop(ObjId),
     ets:insert(?MODULE, {ObjId, RoleMap}),
     ok.
+
+
+%% @private
+-spec get_rolemap_fun(map()) ->
+    nkrole:get_rolemap_fun().
+
+get_rolemap_fun(#{get_rolemap_fun:=Fun}) -> Fun;
+get_rolemap_fun(_) -> fun get_rolemap/1.
 
 
 

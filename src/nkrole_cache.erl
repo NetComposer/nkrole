@@ -37,7 +37,8 @@
 -type start_opts() ::
     #{
         cache_timeout => timeout(),
-        base_pids => gb_sets:set()
+        base_pids => gb_sets:set(),
+        get_rolemap_fun => nkrole:get_rolemap_fun()
     }.
 
 
@@ -111,7 +112,8 @@ init({ObjId, Role, RoleSpecs, Opts}) ->
     BasePids2 = gb_sets:add_element(self(), BasePids1),
     lager:debug("Started cache for ~p ~p (~p)", [Role, ObjId, self()]),
     % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids2)]),
-    ObjIds = find_objs(RoleSpecs, [], BasePids2),
+    GetFun = nkrole_backend:get_rolemap_fun(Opts),
+    ObjIds = find_objs(RoleSpecs, [], GetFun, BasePids2),
     Length = length(ObjIds),
     nklib_proc:put(?MODULE, {ObjId, Role, Length}),
     Timeout = case maps:find(cache_timeout, Opts) of
@@ -198,38 +200,39 @@ terminate(_Reason, _State) ->
 
 
 %% @private
-find_objs([], ObjIds, _History) ->
+find_objs([], ObjIds, _Fun, _History) ->
     lists:flatten(lists:reverse(ObjIds));
 
-find_objs([Map|Rest], ObjIds, PidsSet) when is_map(Map) ->
+find_objs([Map|Rest], ObjIds, GetFun, PidsSet) when is_map(Map) ->
     case maps:to_list(Map) of
         [{SubRole, ObjId}] ->
             case gb_sets:is_element(ObjId, PidsSet) of
                 true ->
                     lager:notice("Obj ~p is in path, skipping", [ObjId]),
-                    find_objs(Rest, ObjIds, PidsSet);
+                    find_objs(Rest, ObjIds, GetFun, PidsSet);
                 false ->
-                    case find_subrole(SubRole, ObjId, PidsSet) of
+                    case find_subrole(SubRole, ObjId, GetFun, PidsSet) of
                         {ok, SubObjIds, CachePid} ->
                             PidsSet1 = gb_sets:add_element(CachePid, PidsSet),
                             monitor(process, CachePid),
-                            find_objs(Rest, [SubObjIds|ObjIds], PidsSet1);
+                            find_objs(Rest, [SubObjIds|ObjIds], GetFun, PidsSet1);
                         error ->
-                            find_objs(Rest, ObjIds, PidsSet)
+                            find_objs(Rest, ObjIds, GetFun, PidsSet)
                     end
             end;
         _ ->
             lager:warning("Invalid role spec: ~p", [Map]),
-            find_objs(Rest, ObjIds, PidsSet)
+            find_objs(Rest, ObjIds, GetFun, PidsSet)
     end;
 
-find_objs([ObjId|Rest], ObjIds, PidsSet) ->
-    find_objs(Rest, [ObjId|ObjIds], PidsSet).
+find_objs([ObjId|Rest], ObjIds, GetFun, PidsSet) ->
+    find_objs(Rest, [ObjId|ObjIds], GetFun, PidsSet).
 
 
 %% @private
-find_subrole(SubRole, ObjId, PidsSet) ->
-    case catch nkrole_proxy:get_cache(SubRole, ObjId, #{base_pids=>PidsSet}) of
+find_subrole(SubRole, ObjId, GetFun, PidsSet) ->
+    Opts = #{base_pids=>PidsSet, get_rolemap_fun=>GetFun},
+    case catch nkrole_proxy:get_cache(SubRole, ObjId, Opts) of
         {ok, CachePid} ->
             case get_obj_ids(CachePid, #{timeout=>180000}) of
                 {ok, ObjIds} ->

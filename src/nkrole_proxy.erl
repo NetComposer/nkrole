@@ -122,7 +122,7 @@ get_proxy(ObjId, Opts) ->
         [{_, Pid}|_] -> 
             {ok, Pid};
         [] -> 
-            Fun = maps:get(get_rolemap_fun, Opts, fun nkrole_backend:get_rolemap/1),
+            Fun = nkrole_backend:get_rolemap_fun(Opts),
             case Fun(ObjId) of
                 {ok, RoleMap} ->
                     start_link(ObjId, RoleMap, Opts);
@@ -161,6 +161,7 @@ stop_all() ->
     rolemap :: nkrole:role_map(),
     proxy_timeout :: pos_integer() | infinity,
     cache_timeout :: pos_integer() | infinity,
+    get_fun :: nkrole:get_rolemap_fun(),
     caches = #{} :: #{nkrole:role() => pid()}
 }).
 
@@ -181,7 +182,8 @@ init({ObjId, RoleMap, Opts}) ->
         obj_id = ObjId, 
         rolemap = RoleMap,
         proxy_timeout = ProxyTimeout, 
-        cache_timeout = CacheTimeout
+        cache_timeout = CacheTimeout,
+        get_fun = nkrole_backend:get_rolemap_fun(Opts)
     },
     lager:debug("Started proxy for ~p (~p)", [ObjId, self()]),
     {ok, State, ProxyTimeout}.
@@ -198,7 +200,13 @@ handle_call({get_role_objs, Role}, _From, #state{rolemap=RoleMap}=State) ->
     reply({ok, maps:get(Role, RoleMap, [])}, State);
 
 handle_call({get_cache, Role, BasePids}, {CallerPid, _}, State) ->
-    #state{obj_id=ObjId, rolemap=RoleMap, caches=Caches, cache_timeout=Timeout} = State,
+    #state{
+        obj_id = ObjId, 
+        rolemap = RoleMap, 
+        caches = Caches, 
+        cache_timeout = Timeout,
+        get_fun = GetFun
+    } = State,
     case maps:find(Role, Caches) of
         {ok, CallerPid} ->
             reply({error, looped_call}, State);
@@ -213,7 +221,11 @@ handle_call({get_cache, Role, BasePids}, {CallerPid, _}, State) ->
             % lager:notice("Staring proxy for ~p (~p)", [ObjId, self()]),
             % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids)]),
             RoleList = maps:get(Role, RoleMap, []),
-            Opts = #{cache_timeout=>Timeout, base_pids=>BasePids},
+            Opts = #{
+                cache_timeout => Timeout, 
+                base_pids => BasePids,
+                get_rolemap_fun => GetFun
+            },
             {ok, Pid} = nkrole_cache:start_link(ObjId, Role, RoleList, Opts),
             monitor(process, Pid),
             Caches1 = maps:put(Role, Pid, Caches),
