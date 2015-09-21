@@ -44,7 +44,7 @@
 
 -type role_map() :: #{role() => [role_spec()]}.
 
--type get_rolemap_fun() :: fun((obj_id()) -> {ok, role_map()} | {error, term()}).
+-type get_rolemap_fun() :: fun((obj_id()) -> {ok, role_map()} | {error, not_found|term()}).
 
 -type opts() ::
     #{

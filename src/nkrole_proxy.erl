@@ -23,7 +23,6 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([start_link/3, start/3]).
 -export([get_proxy/2, proxy_op/3, cache_op/4, stop/1, stop_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
@@ -46,20 +45,23 @@
 %% ===================================================================
 
 
-%% @doc Starts a new proxy
--spec start_link(nkrole:obj_id(), nkrole:role_map(), nkrole:opts()) ->
+%% @doc Returns current proxy for object or start a new one
+-spec get_proxy(nkrole:obj_id(), nkrole:opts()) ->
     {ok, pid()} | {error, term()}.
 
-start_link(ObjId, RoleMap, Opts) ->
-    gen_server:start_link(?MODULE, {ObjId, RoleMap, Opts}, []).
+get_proxy(Pid, _Opts) when is_pid(Pid) ->
+    {ok, Pid};
 
+get_proxy(_, #{proxy_pid:=Pid}) ->
+    {ok, Pid};
 
-%% @doc Starts a new proxy
--spec start(nkrole:obj_id(), nkrole:role_map(), nkrole:opts()) ->
-    {ok, pid()} | {error, term()}.
-
-start(ObjId, RoleMap, Opts) ->
-    gen_server:start_link(?MODULE, {ObjId, RoleMap, Opts}, []).
+get_proxy(ObjId, Opts) ->
+    case nklib_proc:values({?MODULE, ObjId}) of
+        [{_, Pid}|_] -> 
+            {ok, Pid};
+        [] -> 
+            start_link(ObjId, Opts)
+    end.
 
 
 %% @private
@@ -128,31 +130,6 @@ cache_op(ObjId, Role, Op, Opts, Tries) ->
     end.
 
 
-%% @doc Returns current proxy for object or start a new one
--spec get_proxy(nkrole:obj_id(), nkrole:opts()) ->
-    {ok, pid()} | {error, term()}.
-
-get_proxy(Pid, _Opts) when is_pid(Pid) ->
-    {ok, Pid};
-
-get_proxy(_, #{proxy_pid:=Pid}) ->
-    {ok, Pid};
-
-get_proxy(ObjId, Opts) ->
-    case nklib_proc:values({?MODULE, ObjId}) of
-        [{_, Pid}|_] -> 
-            {ok, Pid};
-        [] -> 
-            Fun = nkrole_backend:get_rolemap_fun(Opts),
-            case Fun(ObjId) of
-                {ok, RoleMap} ->
-                    start_link(ObjId, RoleMap, Opts);
-                {error, Error} ->
-                    {error, Error}
-            end
-    end.
-
-
 %% @doc
 -spec stop(nkrole:obj_id()) ->
     ok | {error, term()}.
@@ -177,6 +154,18 @@ stop_all() ->
 %% ===================================================================
 
 
+%% @doc Starts a new proxy
+-spec start_link(nkrole:obj_id(), nkrole:opts()) ->
+    {ok, pid()} | {error, term()}.
+
+start_link(ObjId, Opts) ->
+    case gen_server:start_link(?MODULE, {ObjId, Opts}, []) of
+        {ok, Pid} -> {ok, Pid};
+        ignore -> {error, not_found};
+        {error, Error} -> {error, Error}
+    end.
+
+
 -record(state, {
     obj_id :: nkrole:obj_id(),
     rolemap :: nkrole:role_map(),
@@ -188,7 +177,7 @@ stop_all() ->
 
 
 %% @private 
-init({ObjId, RoleMap, Opts}) ->
+init({ObjId, Opts}) ->
     nklib_proc:put(?MODULE, ObjId),
     nklib_proc:put({?MODULE, ObjId}),
     ProxyTimeout = case maps:find(proxy_timeout, Opts) of
@@ -199,15 +188,23 @@ init({ObjId, RoleMap, Opts}) ->
         {ok, Timeout2} -> Timeout2;
         error -> nkrole_app:get(cache_timeout)
     end,
-    State = #state{
-        obj_id = ObjId, 
-        rolemap = RoleMap,
-        proxy_timeout = ProxyTimeout, 
-        cache_timeout = CacheTimeout,
-        get_fun = nkrole_backend:get_rolemap_fun(Opts)
-    },
-    lager:debug("Started proxy for ~p (~p)", [ObjId, self()]),
-    {ok, State, ProxyTimeout}.
+    GetFun = nkrole_backend:get_rolemap_fun(Opts),
+    case GetFun(ObjId) of
+        {ok, RoleMap} ->
+            State = #state{
+                obj_id = ObjId, 
+                rolemap = RoleMap,
+                proxy_timeout = ProxyTimeout, 
+                cache_timeout = CacheTimeout,
+                get_fun = GetFun
+            },
+            lager:debug("Started proxy for ~p (~p)", [ObjId, self()]),
+            {ok, State, ProxyTimeout};
+        {error, not_found} ->
+            ignore;
+        {error, Error} ->
+            {stop, {obj_get_error, {Error, ObjId}}}
+    end.
 
 
 %% @private
