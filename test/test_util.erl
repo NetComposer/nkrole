@@ -39,12 +39,13 @@ objs(set1) -> [
 	{root, #{member => [#{member=>orgA}, #{member=>orgB}]}},
 
 	% OrgA
-	{orgA, #{member => [#{member=>depA1}, #{member=>depA2}, #{member=>depA3}], head=>[root]}},
+	{orgA, #{member => [#{member=>depA1}, #{member=>depA2}, #{member=>depA3}, #{member=>depA4}], head=>[root]}},
 	{depA1, #{member => [u01, u02], head=>[orgA, #{head=>orgA}]}},
 	{depA2, #{member => [depA21, depA22, #{member=>depA21}, #{member=>depA22}], head=>[orgA, #{head=>orgA}]}},
 	{depA21, #{member => [u03, u04], head=>[depA2, #{head=>depA2}]}},
 	{depA22, #{member => [u05, u06], head=>[depA2, #{head=>depA2}]}},
 	{depA3, #{member => [u07, u08], head=>[orgA, #{head=>orgA}]}},
+    {depA4, #{head=>[orgA, #{head=>orgA}]}},
 	% Dom2
 	{orgB, #{member => [u10, #{member=>depB1}], head=>[root]}},
 	{depB1, #{member => [u11, u12], head=>[orgB, #{head=>orgB}]}},

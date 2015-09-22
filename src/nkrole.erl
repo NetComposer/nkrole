@@ -26,7 +26,7 @@
 -export([find_role_objs/3, has_role/4]).
 -export([add_role/4, add_subrole/5, del_role/4, del_subrole/5]).
 -export([stop/1]).
--export([proxy_op/3, cache_op/4]).
+-export([proxy_op/3]).
 
 -export_type([obj_id/0, role/0, role_spec/0, role_map/0]).
 -export_type([opts/0, get_rolemap_fun/0]).
@@ -50,9 +50,8 @@
     #{
         timeout => pos_integer() | infinity,
         proxy_timeout => pos_integer() | infinity,
-        cache_timeout => pos_integer() | infinity,
-        get_rolemap_fun => get_rolemap_fun(),
-        proxy_pid => pid()
+        get_rolemap_fun => get_rolemap_fun()
+        % proxy_pid => pid()
     }.
 
 
@@ -78,20 +77,53 @@ get_role_objs(Role, ObjId, Opts) ->
     proxy_op(ObjId, {get_role_objs, Role}, Opts).
 
 
-%% @doc Gets all nested objects having a role over and object
--spec find_role_objs(role(), obj_id(), opts()) ->
-    {ok, [obj_id()]} | {error, term()}.
-
-find_role_objs(Role, ObjId, Opts) ->
-    cache_op(ObjId, Role, get_obj_ids, Opts).
-
-
 %% @doc Check if ObjId has Role over Target
 -spec has_role(obj_id(), role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 has_role(ObjId, Role, Target, Opts) ->
-    cache_op(Target, Role, {has_obj_id, ObjId}, Opts).
+    proxy_op(Target, {has_role, ObjId, Role}, Opts).
+
+
+%% @doc Gets all nested objects having a role over and object
+-spec find_role_objs(role(), obj_id(), opts()) ->
+    {ok, [obj_id()]} | {error, term()}.
+
+find_role_objs(Role, ObjId, Opts) ->
+    case proxy_op(ObjId, {get_cached, Role}, Opts) of
+        {ok, {_CachePid, ObjIds, Pids}} ->
+            lager:debug("FIRST: ~p, ~p", [ObjIds, Pids]),
+            case find_role_objs(Role, ObjId, Opts, Pids, ObjIds) of
+                {ok, List} -> 
+                    {ok, lists:flatten(lists:reverse(List))};
+                {error, Error} -> 
+                    {error, Error}
+            end;
+        {error, Error} ->
+            {error, Error}
+    end.
+
+
+%% @private
+-spec find_role_objs(role(), obj_id(), opts(), [pid()], [obj_id()]) ->
+    {ok, [obj_id()]} | {error, term()}.
+
+find_role_objs(_Role, _ObjId, _Opts, [], Acc) ->
+    {ok, Acc};
+
+find_role_objs(Role, ObjId, Opts, [Pid|Rest], Acc) ->
+    case nkrole_cache:get_cached(Pid) of
+        {ok, SubObjIds, SubPids} ->
+            lager:debug("CALL FOR ~p: ~p, ~p", [Pid, SubObjIds, SubPids]),
+            case find_role_objs(Role, ObjId, Opts, SubPids, [SubObjIds|Acc]) of
+                {ok, Acc2} ->
+                    find_role_objs(Role, ObjId, Opts, Rest, Acc2);
+                {error, Error} ->
+                    {error, Error}
+            end;
+        {error, Error} ->
+            {error, Error}
+    end.
 
 
 %% @doc Adds a role to an object
@@ -152,16 +184,5 @@ proxy_op(ObjId, Op, Opts) ->
         {error, Error} -> {error, Error}
     end.
 
-
-%% @private
--spec cache_op(obj_id(), nkrole:role(), nkrole_cache:op(), opts()) ->
-    {ok, term()} | {error, term()}.
-
-%% @private
-cache_op(ObjId, Role, Op, Opts) ->
-    case nkrole_proxy:cache_op(ObjId, Role, Op, Opts) of
-        {ok, Reply, _ProxyPid, _CachePid} -> {ok, Reply};
-        {error, Error} -> {error, Error}
-    end.
 
 

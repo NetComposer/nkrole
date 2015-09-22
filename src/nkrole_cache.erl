@@ -25,26 +25,11 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([start_link/4, stop/1, get_all/0]).
+-export([start_link/4, get_cached/1, has_elements/1, has_obj_id/2, stop/1, get_all/0]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
--export_type([op/0]).
 
 -include("nkrole.hrl").
-
--define(MINIMUM_SET, 1000).
-
--type start_opts() ::
-    #{
-        cache_timeout => timeout(),
-        base_pids => gb_sets:set(),
-        get_rolemap_fun => nkrole:get_rolemap_fun()
-    }.
-
--type op() ::
-    get_obj_ids | {has_obj_id, nkrole:obj_id()}.
-
-
 
 
 %% ===================================================================
@@ -52,11 +37,38 @@
 %% ===================================================================
 
 %% @doc Starts a new cache
--spec start_link(nkrole:obj_id(), nkrole:role(), [nkrole:role_spec()], start_opts()) ->
+-spec start_link([nkrole:role_spec()], pid(), nkrole:get_rolemap_fun(), 
+                  sets:set(pid())) ->
     {ok, pid()}.
 
-start_link(ObjId, Role, RoleSpecs, Opts) ->
-    proc_lib:start_link(?MODULE, init, [{ObjId, Role, RoleSpecs, Opts}]).
+start_link(RoleSpecs, ProxyPid, GetFun, Path) ->
+    proc_lib:start_link(?MODULE, init, [{RoleSpecs, ProxyPid, GetFun, Path}]).
+
+
+%% @private
+%% We need big timeouts for everything, because we can call right after
+%% a creation start, that can last for a long time.
+-spec get_cached(pid()) ->
+    {ok, [nkrole:obj_id()], [pid()]} | {error, term()}.
+
+get_cached(Pid) ->
+    nklib_util:call(Pid, get_cached, #{timeout=>180000}).
+
+
+%% @private
+-spec has_elements(pid()) ->
+    {ok, boolean()} | {error, term()}.
+
+has_elements(Pid) ->
+    nklib_util:call(Pid, has_elements, #{timeout=>180000}).
+
+
+%% @private
+-spec has_obj_id(pid(), nkrole:obj_id()) ->
+    {ok, boolean()} | {error, term()}.
+
+has_obj_id(Pid, ObjId) ->
+    nklib_util:call(Pid, {has_obj_id, ObjId}, #{timeout=>180000}).
 
 
 %% @doc Stops a cache
@@ -78,61 +90,52 @@ get_all() ->
 %% ===================================================================
 
 -record(state, {
-    obj_ids :: [nkrole:obj_id()],
-    length :: integer(),
-    set :: gb_sets:set(),
-    timeout :: pos_integer()
+    proxy :: pid(),
+    obj_set :: sets:set(nkrole:obj_id()),
+    cache_pids :: [pid()]
 }).
 
 
 %% @private
--spec init({nkrole:obj_id(), nkrole:role(), [nkrole:role_spec()], start_opts()}) ->
+-spec init({[nkrole:role_spec()], pid(), nkrole:get_rolemap_fun(), sets:set(pid())}) ->
     ok.
 
-init({ObjId, Role, RoleSpecs, Opts}) ->
+init({RoleSpecs, ProxyPid, GetFun, Path}) ->
     ok = proc_lib:init_ack({ok, self()}),
-    BasePids1 = maps:get(base_pids, Opts, gb_sets:new()),
-    BasePids2 = gb_sets:add_element(self(), BasePids1),
-    lager:debug("Started cache for ~p ~p (~p)", [Role, ObjId, self()]),
-    % lager:notice("Base pids: ~p", [gb_sets:to_list(BasePids2)]),
-    GetFun = nkrole_backend:get_rolemap_fun(Opts),
-    ObjIds = find_objs(RoleSpecs, [], GetFun, BasePids2),
-    Length = length(ObjIds),
-    nklib_proc:put(?MODULE, {ObjId, Role, Length}),
-    Timeout = case maps:find(cache_timeout, Opts) of
-        {ok, Timeout0} -> Timeout0;
-        error -> nkrole_app:get(cache_timeout)
-    end,
-    State = #state{obj_ids=ObjIds, length=Length, timeout=Timeout},
-    gen_server:enter_loop(?MODULE, [], State, Timeout).
+    nklib_proc:put(?MODULE, ProxyPid),
+    {ObjIdSet, CachePids} = find_objs(RoleSpecs, GetFun, Path),
+    monitor(process, ProxyPid),
+    State = #state{
+        proxy = ProxyPid,
+        obj_set = ObjIdSet, 
+        cache_pids = CachePids
+    },
+    gen_server:enter_loop(?MODULE, [], State).
 
 
 %% @private
 -spec handle_call(term(), {pid(), term()}, #state{}) ->
     {noreply, #state{}} | {reply, term(), #state{}}.
 
-handle_call(get_obj_ids, From, #state{obj_ids=ObjIds}=State) ->
-    gen_server:reply(From, {ok, ObjIds}),
-    noreply(State);
+handle_call(get_cached, _From, #state{obj_set=ObjIdSet, cache_pids=Pids}=State) ->
+    {reply, {ok, sets:to_list(ObjIdSet), Pids}, State};
 
-handle_call({has_obj_id, ObjId}, From, #state{set=undefined, obj_ids=ObjIds}=State) ->
-    #state{obj_ids=ObjIds, length=Length} = State,
-    case Length > ?MINIMUM_SET of
+handle_call(has_elements, _From, #state{obj_set=ObjIdSet, cache_pids=Pids}=State) ->
+    Reply = Pids /= [] orelse sets:size(ObjIdSet) /= 0,
+    {reply, {ok, Reply}, State};
+
+handle_call({has_obj_id, ObjId}, From, #state{obj_set=ObjIdSet, cache_pids=Pids}=State) ->
+    case sets:is_element(ObjId, ObjIdSet) of
         true ->
-            Set = gb_sets:from_list(ObjIds),
-            handle_call({has_obj_id, ObjId}, From, State#state{set=Set});
+            {reply, {ok, true}, State};
         false ->
-            gen_server:reply(From, {ok, has_obj_id(ObjId, ObjIds)}),
-            noreply(State)
+            spawn_link(fun() -> has_obj_id(ObjId, Pids, From) end),
+            {noreply, State}
     end;
-
-handle_call({has_obj_id, ObjId}, From, #state{set=Set}=State) ->
-    gen_server:reply(From, {ok, gb_sets:is_member(ObjId, Set)}),
-    noreply(State);
 
 handle_call(Msg, _From, State) -> 
     lager:error("Module ~p received unexpected call ~p", [?MODULE, Msg]),
-    noreply(State).
+    {noreply, State}.
 
 
 %% @private
@@ -144,22 +147,25 @@ handle_cast(stop, State) ->
 
 handle_cast(Msg, State) -> 
     lager:error("Module ~p received unexpected cast ~p", [?MODULE, Msg]),
-    noreply(State).
+    {noreply, State}.
 
 
 %% @private
 -spec handle_info(term(), #state{}) ->
     {noreply, #state{}} | {stop, normal, #state{}}.
 
-handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{proxy=Pid}=State) ->
     {stop, normal, State};
 
-handle_info(timeout, State) ->
-    {stop, normal, State};
+%% This way, if we have to stop, it enters in the proxy gen_server queue and 
+%% no cache order to proxy is lost.
+handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{proxy=ProxyPid}=State) ->
+    gen_server:cast(ProxyPid, {stop_cache, self()}),
+    {noreply, State};
 
 handle_info(Info, State) -> 
     lager:warning("Module ~p received unexpected info: ~p (~p)", [?MODULE, Info, State]),
-    noreply(State).
+    {noreply, State}.
 
 
 %% @private
@@ -181,59 +187,69 @@ terminate(_Reason, _State) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Internal %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
 %% @private
-find_objs([], ObjIds, _Fun, _History) ->
-    lists:flatten(lists:reverse(ObjIds));
+find_objs(RoleSpecs, Fun, Path) ->
+    Path2 = sets:add_element(self(), Path),
+    find_objs(RoleSpecs, [], [], Fun, Path2).
 
-find_objs([Map|Rest], ObjIds, GetFun, PidsSet) when is_map(Map) ->
-    case maps:to_list(Map) of
-        [{SubRole, ObjId}] ->
-            case gb_sets:is_element(ObjId, PidsSet) of
+    
+%% @private
+find_objs([], ObjIds, Pids, _Fun, _Path) ->
+    {sets:from_list(ObjIds), lists:reverse(Pids)};
+
+find_objs([Map|Rest], ObjIds, Pids, GetFun, Path) when is_map(Map), map_size(Map)==1 ->
+    [{SubRole, ObjId}] = maps:to_list(Map),
+    case find_subrole(SubRole, ObjId, GetFun, Path) of
+        {ok, Bool, CachePid} ->
+            monitor(process, CachePid),
+            Path1 = sets:add_element(CachePid, Path),
+            CachePids1 = case Bool of 
                 true ->
-                    lager:notice("Obj ~p is in path, skipping", [ObjId]),
-                    find_objs(Rest, ObjIds, GetFun, PidsSet);
+                    lager:debug("Adding ~p (~p): ~p", 
+                                 [{SubRole, ObjId}, self(), CachePid]),
+                    [CachePid|Pids];
                 false ->
-                    case find_subrole(SubRole, ObjId, GetFun, PidsSet) of
-                        {ok, SubObjIds, CachePid} ->
-                            PidsSet1 = gb_sets:add_element(CachePid, PidsSet),
-                            monitor(process, CachePid),
-                            find_objs(Rest, [SubObjIds|ObjIds], GetFun, PidsSet1);
-                        error ->
-                            find_objs(Rest, ObjIds, GetFun, PidsSet)
-                    end
-            end;
-        _ ->
-            lager:warning("Invalid role spec: ~p", [Map]),
-            find_objs(Rest, ObjIds, GetFun, PidsSet)
+                    lager:debug("Monitoring ~p (~p): ~p", 
+                                 [{SubRole, ObjId}, self(), CachePid]),
+                    Pids
+            end,
+            find_objs(Rest, ObjIds, CachePids1, GetFun, Path1);
+         error ->
+            find_objs(Rest, ObjIds, Pids, GetFun, Path)
     end;
 
-find_objs([ObjId|Rest], ObjIds, GetFun, PidsSet) ->
-    find_objs(Rest, [ObjId|ObjIds], GetFun, PidsSet).
+find_objs([ObjId|Rest], ObjIds, Pids, GetFun, Path) ->
+    lager:debug("Adding ~p (~p)", [ObjId, self()]),
+    find_objs(Rest, [ObjId|ObjIds], Pids, GetFun, Path).
 
 
 %% @private
-find_subrole(SubRole, ObjId, GetFun, PidsSet) ->
-    Opts = #{get_rolemap_fun=>GetFun, base_pids=>PidsSet, timeout=>180000},
-    case nkrole_proxy:cache_op(ObjId, SubRole, get_obj_ids, Opts) of
-        {ok, ObjIds, _ProxyPid, CachePid} ->
-            {ok, ObjIds, CachePid};
+find_subrole(SubRole, ObjId, GetFun, Path) ->
+    Opts = #{get_rolemap_fun=>GetFun, timeout=>180000},
+    case nkrole_proxy:proxy_op(ObjId, {has_elements, SubRole, Path}, Opts) of
+        {ok, {true, CachePid}, _ProxyPid} ->
+            {ok, true, CachePid};
+        {ok, {false, CachePid}, _ProxyPid} ->
+            {ok, false, CachePid};
         {error, Error} ->
-            lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
-            error;
-        Error ->
             lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
             error
     end.
 
 
 %% @private 
-has_obj_id(_ObjId, []) -> false;
-has_obj_id(ObjId, [ObjId|_]) -> true;
-has_obj_id(ObjId, [_|Rest]) -> has_obj_id(ObjId, Rest).
+has_obj_id(_ObjId, [], From) ->
+    gen_server:reply(From, {ok, false});
+
+has_obj_id(ObjId, [Pid|Rest], From) ->
+    case catch gen_server:call(Pid, {has_obj_id, ObjId}, 180000) of
+        {ok, true} -> 
+            gen_server:reply(From, {ok, true});
+        {ok, false} ->
+            has_obj_id(ObjId, Rest, From);
+        {'EXIT', Error} ->
+            {error, Error}
+    end.
 
 
-%% @private
-noreply(#state{timeout=Timeout}=State) ->
-    {noreply, State, Timeout}.
 

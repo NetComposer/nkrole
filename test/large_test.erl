@@ -74,7 +74,7 @@ large() ->
     [Last|_] = lists:reverse(LMax),
     {ok, true} = has_role(Last, member, <<"root">>, #{}),
 
-    [O1|_] = LMax,
+    [O1|_] = lists:sort(LMax),
     {ok, []} = find_role_objs(member, O1, #{}),
     <<"0_", O2/binary>> = O1,
     {ok, L2} = find_role_objs(member, O2, #{}),

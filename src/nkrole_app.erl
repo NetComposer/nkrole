@@ -51,12 +51,10 @@ start() ->
 %% @private OTP standard start callback
 start(_Type, _Args) ->
     ConfigSpec = #{
-        proxy_timeout => {integer, 1, none},
-        cache_timeout => {integer, 1, none}
+        proxy_timeout => {integer, 1, none}
     },
     Defaults = #{
-        proxy_timeout => 180000,
-        cache_timeout => 180000
+        proxy_timeout => 180000
     },
     case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
         ok ->
