@@ -312,7 +312,7 @@ code_change(_OldVsn, State, _Extra) ->
     ok.
 
 terminate(_Reason, #state{obj_id=ObjId}) ->  
-    lager:debug("NkROLE stopped proxy for ~s", [ObjId]).
+    lager:debug("NkROLE stopped proxy for ~p", [ObjId]).
 
 
 
