@@ -24,7 +24,7 @@
 
 -export([get_roles/2, get_role_objs/3]).
 -export([find_role_objs/3, has_role/4]).
--export([add_role/4, add_subrole/5, del_role/4, del_subrole/5]).
+-export([add_role/4, add_subrole/5, del_role/4, del_subrole/5, set_role/4]).
 -export([stop/1]).
 -export([proxy_op/3]).
 
@@ -158,6 +158,14 @@ del_role(Role, Base, ObjId, Opts) ->
 del_subrole(Role, Base, SubRole, ObjId, Opts) ->
     Spec = maps:put(SubRole, ObjId, #{}),
     proxy_op(Base, {del_role, Role, Spec}, Opts).
+
+
+%% @doc Adds a role to an object
+-spec set_role(role(), obj_id(), [role_spec()], opts()) ->
+    ok | {error, term()}.
+
+set_role(Role, Base, RoleSpecs, Opts) when is_list(RoleSpecs) ->
+    proxy_op(Base, {set_role, Role, RoleSpecs}, Opts).
 
 
 %% @doc

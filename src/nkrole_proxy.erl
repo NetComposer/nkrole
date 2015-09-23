@@ -39,7 +39,8 @@
     {has_elements, nkrole:role(), sets:set(pid())} |
     {get_cached, nkrole:role()} | 
     {add_role, nkrole:role(), nkrole:role_spec()} |
-    {del_role, nkrole:role(), nkrole:role_spec()}.
+    {del_role, nkrole:role(), nkrole:role_spec()} |
+    {set_role, nkrole:role(), [nkrole:role_spec()]}.
 
 
 %% ===================================================================
@@ -236,6 +237,18 @@ handle_call({get_cached, Role}, From, State) ->
             gen_server:reply(From, Reply)
         end),
     noreply(State1);
+
+handle_call({set_role, Role, Specs}, _From, #state{rolemap=RoleMap}=State) ->
+    State1 = case maps:get(Role, RoleMap, []) of
+        Specs ->
+            lager:warning("ROLE PROXY1"),
+            State;
+        _ ->
+            lager:warning("ROLE PROXY2"),
+            RoleMap1 = maps:put(Role, Specs, RoleMap),
+            invalidate_role(Role, State#state{rolemap=RoleMap1})
+    end,
+    reply(ok, State1);
 
 handle_call({add_role, Role, Spec}, _From, #state{rolemap=RoleMap}=State) ->
     RoleObjs = maps:get(Role, RoleMap, []),
