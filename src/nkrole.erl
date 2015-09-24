@@ -86,13 +86,13 @@ has_role(ObjId, Role, Target, Opts) ->
 
 
 %% @doc Gets all nested objects having a role over and object
+%% Warning: this function can get duplicated objects
 -spec find_role_objs(role(), obj_id(), opts()) ->
     {ok, [obj_id()]} | {error, term()}.
 
 find_role_objs(Role, ObjId, Opts) ->
     case proxy_op(ObjId, {get_cached, Role}, Opts) of
         {ok, {_CachePid, ObjIds, Pids}} ->
-            lager:debug("FIRST: ~p, ~p", [ObjIds, Pids]),
             case find_role_objs(Role, ObjId, Opts, Pids, ObjIds) of
                 {ok, List} -> 
                     {ok, lists:flatten(lists:reverse(List))};
