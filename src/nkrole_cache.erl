@@ -37,12 +37,11 @@
 %% ===================================================================
 
 %% @doc Starts a new cache
--spec start_link([nkrole:role_spec()], pid(), nkrole:get_rolemap_fun(), 
-                  sets:set(pid())) ->
+-spec start_link([nkrole:role_spec()], pid(), sets:set(pid()), nkrole:opts()) ->
     {ok, pid()}.
 
-start_link(RoleSpecs, ProxyPid, GetFun, Path) ->
-    proc_lib:start_link(?MODULE, init, [{RoleSpecs, ProxyPid, GetFun, Path}]).
+start_link(RoleSpecs, ProxyPid, Path, Opts) ->
+    proc_lib:start_link(?MODULE, init, [{RoleSpecs, ProxyPid, Path, Opts}]).
 
 
 %% @private
@@ -97,13 +96,13 @@ get_all() ->
 
 
 %% @private
--spec init({[nkrole:role_spec()], pid(), nkrole:get_rolemap_fun(), sets:set(pid())}) ->
+-spec init({[nkrole:role_spec()], pid(), sets:set(pid()), nkrole:opts()}) ->
     ok.
 
-init({RoleSpecs, ProxyPid, GetFun, Path}) ->
+init({RoleSpecs, ProxyPid, Path, Opts}) ->
     ok = proc_lib:init_ack({ok, self()}),
     nklib_proc:put(?MODULE, ProxyPid),
-    {ObjIdSet, CachePids} = find_objs(RoleSpecs, GetFun, Path),
+    {ObjIdSet, CachePids} = find_objs(RoleSpecs, Path, Opts),
     monitor(process, ProxyPid),
     State = #state{
         proxy = ProxyPid,
@@ -188,18 +187,18 @@ terminate(_Reason, _State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Internal %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% @private
-find_objs(RoleSpecs, Fun, Path) ->
+find_objs(RoleSpecs, Path, Opts) ->
     Path2 = sets:add_element(self(), Path),
-    find_objs(RoleSpecs, [], [], Fun, Path2).
+    find_objs(RoleSpecs, [], [], Path2, Opts).
 
     
 %% @private
-find_objs([], ObjIds, Pids, _Fun, _Path) ->
+find_objs([], ObjIds, Pids, _Path, _Opts) ->
     {sets:from_list(ObjIds), lists:reverse(Pids)};
 
-find_objs([Map|Rest], ObjIds, Pids, GetFun, Path) when is_map(Map), map_size(Map)==1 ->
+find_objs([Map|Rest], ObjIds, Pids, Path, Opts) when is_map(Map), map_size(Map)==1 ->
     [{SubRole, ObjId}] = maps:to_list(Map),
-    case find_subrole(SubRole, ObjId, GetFun, Path) of
+    case find_subrole(SubRole, ObjId, Path, Opts) of
         {ok, Bool, CachePid} ->
             monitor(process, CachePid),
             Path1 = sets:add_element(CachePid, Path),
@@ -213,20 +212,20 @@ find_objs([Map|Rest], ObjIds, Pids, GetFun, Path) when is_map(Map), map_size(Map
                                  [{SubRole, ObjId}, self(), CachePid]),
                     Pids
             end,
-            find_objs(Rest, ObjIds, CachePids1, GetFun, Path1);
+            find_objs(Rest, ObjIds, CachePids1, Path1, Opts);
          error ->
-            find_objs(Rest, ObjIds, Pids, GetFun, Path)
+            find_objs(Rest, ObjIds, Pids, Path, Opts)
     end;
 
-find_objs([ObjId|Rest], ObjIds, Pids, GetFun, Path) ->
+find_objs([ObjId|Rest], ObjIds, Pids, Path, Opts) ->
     lager:debug("Adding ~p (~p)", [ObjId, self()]),
-    find_objs(Rest, [ObjId|ObjIds], Pids, GetFun, Path).
+    find_objs(Rest, [ObjId|ObjIds], Pids, Path, Opts).
 
 
 %% @private
-find_subrole(SubRole, ObjId, GetFun, Path) ->
-    Opts = #{get_rolemap_fun=>GetFun, timeout=>180000},
-    case nkrole_proxy:proxy_op(ObjId, {has_elements, SubRole, Path}, Opts) of
+find_subrole(SubRole, ObjId, Path, Opts) ->
+    Opts1 = Opts#{timeout=>180000},
+    case nkrole_proxy:proxy_op(ObjId, {has_elements, SubRole, Path}, Opts1) of
         {ok, {true, CachePid}, _ProxyPid} ->
             {ok, true, CachePid};
         {ok, {false, CachePid}, _ProxyPid} ->

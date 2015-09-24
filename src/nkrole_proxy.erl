@@ -241,10 +241,8 @@ handle_call({get_cached, Role}, From, State) ->
 handle_call({set_role, Role, Specs}, _From, #state{rolemap=RoleMap}=State) ->
     State1 = case maps:get(Role, RoleMap, []) of
         Specs ->
-            lager:warning("ROLE PROXY1"),
             State;
-        _ ->
-            lager:warning("ROLE PROXY2"),
+        _Old ->
             RoleMap1 = maps:put(Role, Specs, RoleMap),
             invalidate_role(Role, State#state{rolemap=RoleMap1})
     end,
@@ -351,7 +349,8 @@ get_cache(Role, Path, CallerPid, State) ->
         obj_id = ObjId,
         rolemap = RoleMap, 
         caches = Caches, 
-        get_fun = GetFun
+        get_fun = GetFun,
+        proxy_timeout = ProxyTimeout
     } = State,
     case lists:keyfind(Role, 1, Caches) of
         {Role, CallerPid} ->
@@ -366,7 +365,11 @@ get_cache(Role, Path, CallerPid, State) ->
         false ->
             % lager:notice("Base pids: ~p", [sets:to_list(Path)]),
             RoleList = maps:get(Role, RoleMap, []),
-            {ok, Pid} = nkrole_cache:start_link(RoleList, self(), GetFun, Path),
+            Opts = #{
+                proxy_timeout => ProxyTimeout,
+                get_rolemap_fun => GetFun
+            },
+            {ok, Pid} = nkrole_cache:start_link(RoleList, self(), Path, Opts),
             lager:debug("NkROLE started cache for ~p ~p (~p)", [ObjId, Role, Pid]),
             monitor(process, Pid),
             {ok, Pid, State#state{caches=[{Role, Pid}|Caches]}}
