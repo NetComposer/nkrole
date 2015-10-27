@@ -56,7 +56,7 @@ start(_Type, _Args) ->
     Defaults = #{
         proxy_timeout => 180000
     },
-    case nklib_config:load_env(?APP, ?APP, Syntax, Defaults) of
+    case nklib_config:load_env(?APP, Syntax, Defaults) of
         {ok, _} ->
             {ok, Vsn} = application:get_key(?APP, vsn),
             lager:notice("NkROLE v~s is starting", [Vsn]),
