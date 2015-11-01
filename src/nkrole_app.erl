@@ -50,14 +50,14 @@ start() ->
 
 %% @private OTP standard start callback
 start(_Type, _Args) ->
-    ConfigSpec = #{
+    Syntax = #{
         proxy_timeout => {integer, 1, none}
     },
     Defaults = #{
         proxy_timeout => 180000
     },
-    case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
-        ok ->
+    case nklib_config:load_env(?APP, Syntax, Defaults) of
+        {ok, _} ->
             {ok, Vsn} = application:get_key(?APP, vsn),
             lager:notice("NkROLE v~s is starting", [Vsn]),
             nkrole_sup:start_link();
