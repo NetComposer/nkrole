@@ -51,7 +51,7 @@ start_link(RoleSpecs, ProxyPid, Path, Opts) ->
     {ok, [nkrole:obj_id()], [pid()]} | {error, term()}.
 
 get_cached(Pid) ->
-    nklib_util:call(Pid, get_cached, #{timeout=>180000}).
+    nklib_util:call(Pid, get_cached, 180000).
 
 
 %% @private
@@ -59,7 +59,7 @@ get_cached(Pid) ->
     {ok, boolean()} | {error, term()}.
 
 has_elements(Pid) ->
-    nklib_util:call(Pid, has_elements, #{timeout=>180000}).
+    nklib_util:call(Pid, has_elements, 180000).
 
 
 %% @private
@@ -67,7 +67,7 @@ has_elements(Pid) ->
     {ok, boolean()} | {error, term()}.
 
 has_obj_id(Pid, ObjId) ->
-    nklib_util:call(Pid, {has_obj_id, ObjId}, #{timeout=>180000}).
+    nklib_util:call(Pid, {has_obj_id, ObjId}, 180000).
 
 
 %% @doc Stops a cache

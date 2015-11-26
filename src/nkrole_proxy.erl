@@ -83,7 +83,8 @@ proxy_op(ObjId, Op, Opts, Tries) ->
     case get_proxy(ObjId, Opts) of
         {ok, ProxyPid} ->
             % Check if the proxy has stopped just after getting its pid
-            case nklib_util:call(ProxyPid, Op, Opts) of
+            Timeout = maps:get(timeout, Opts, 5000),
+            case nklib_util:call(ProxyPid, Op, Timeout) of
                 ok ->
                     {ok, ProxyPid};
                 {ok, Reply} ->
