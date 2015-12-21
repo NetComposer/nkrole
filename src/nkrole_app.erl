@@ -59,7 +59,7 @@ start(_Type, _Args) ->
     case nklib_config:load_env(?APP, Syntax, Defaults) of
         {ok, _} ->
             {ok, Vsn} = application:get_key(?APP, vsn),
-            lager:notice("NkROLE v~s is starting", [Vsn]),
+            lager:info("NkROLE v~s is starting", [Vsn]),
             nkrole_sup:start_link();
         {error, Error} ->
             lager:error("Error parsing config: ~p", [Error]),
