@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2017 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -56,7 +56,7 @@ get_rolemap(ObjId) ->
 
 %% @doc 
 -spec put_rolemap(nkrole:obj_id(), nkrole:rolemap()) ->
-    {ok, nkrole:role_map()} | {error, not_found|term()}.
+    ok.
 
 put_rolemap(ObjId, RoleMap) ->
     nkrole:stop(ObjId),
@@ -69,7 +69,7 @@ put_rolemap(ObjId, RoleMap) ->
     nkrole:get_rolemap_fun().
 
 get_rolemap_fun(#{get_rolemap_fun:=Fun}) -> Fun;
-get_rolemap_fun(_) -> fun get_rolemap/1.
+get_rolemap_fun(_) -> fun ?MODULE:get_rolemap/1.
 
 
 

@@ -1,90 +1,64 @@
-REPO ?= nkrole
-# RELOADER ?= -s nkreloader
+APP = nkrole
+REBAR = rebar3
 
-.PHONY: deps release dev
+.PHONY: rel stagedevrel package version all tree shell
 
-all: deps compile
+all: version compile
+
+
+version:
+	@echo "$(shell git symbolic-ref HEAD 2> /dev/null | cut -b 12-)-$(shell git log --pretty=format:'%h, %ad' -1)" > $(APP).version
+
+
+version_header: version
+	@echo "-define(VERSION, <<\"$(shell cat $(APP).version)\">>)." > include/$(APP)_version.hrl
+
+
+clean:
+	$(REBAR) clean
+
+
+rel:
+	$(REBAR) release
+
 
 compile:
-	./rebar compile
-
-cnodeps:
-	./rebar compile skip_deps=true
-
-deps:
-	./rebar get-deps
-	find deps -name "rebar.config" | xargs perl -pi -e 's/lager, "2.0.3"/lager, ".*"/g'
-	(cd deps/lager && git checkout 2.1.1)
-
-clean: 
-	./rebar clean
-
-distclean: clean
-	./rebar delete-deps
-
-tests: compile eunit
-
-eunit:
-	export ERL_FLAGS="-config test/app.config -args_file test/vm.args"; \
-	./rebar eunit skip_deps=true
-
-shell:
-	erl -config util/shell_app.config -args_file util/shell_vm.args -s nkrole_app $(RELOADER)
-
-docs:
-	./rebar skip_deps=true doc
+	$(REBAR) compile
 
 
-dev1:
-	erl -config util/dev1.config -args_file util/dev_vm.args \
-		-name dev1@127.0.0.1 -s nkrole_app $(RELOADER)
+tests:
+	$(REBAR) eunit
 
-dev2:
-	erl -config util/dev2.config -args_file util/dev_vm.args \
-	    -name dev2@127.0.0.1 -s nkrole_app $(RELOADER)
-
-dev3:
-	erl -config util/dev3.config -args_file util/dev_vm.args \
-	    -name dev3@127.0.0.1 -s nkrole_app $(RELOADER)
-
-dev4:
-	erl -config util/dev4.config -args_file util/dev_vm.args \
-	    -name dev4@127.0.0.1 -s nkrole_app $(RELOADER)
-
-dev5:
-	erl -config util/dev5.config -args_file util/dev_vm.args \
-	    -name dev5@127.0.0.1 -s nkrole_app $(RELOADER)
-
-dev:
-	erl -config test/app.config -args_file test/vm.args \
-	    -s nkrole_app $(RELOADER)
-
-
-
-APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto inets \
-	xmerl webtool snmp public_key mnesia eunit syntax_tools compiler
-COMBO_PLT = $(HOME)/.$(REPO)_combo_dialyzer_plt
-
-check_plt: 
-	dialyzer --check_plt --plt $(COMBO_PLT) --apps $(APPS) deps/*/ebin
-
-build_plt: 
-	dialyzer --build_plt --output_plt $(COMBO_PLT) --apps $(APPS) deps/nk*/ebin
 
 dialyzer:
-	dialyzer -Wno_return --plt $(COMBO_PLT) ebin/nkrole*.beam #| \
-	    # fgrep -v -f ./dialyzer.ignore-warnings
-
-cleanplt:
-	@echo 
-	@echo "Are you sure?  It takes about 1/2 hour to re-build."
-	@echo Deleting $(COMBO_PLT) in 5 seconds.
-	@echo 
-	sleep 5
-	rm $(COMBO_PLT)
+	$(REBAR) dialyzer
 
 
-build_tests:
-	erlc -pa ebin -pa deps/lager/ebin -o ebin -I include -pa deps/nklib \
-	+export_all +debug_info +"{parse_transform, lager_transform}" \
-	test/*.erl
+xref:
+	$(REBAR) xref
+
+
+upgrade:
+	$(REBAR) upgrade
+	make tree
+
+
+update:
+	$(REBAR) update
+
+
+tree:
+	$(REBAR) tree | grep -v '=' | sed 's/ (.*//' > tree
+
+
+tree-diff: tree
+	git diff test -- tree
+
+
+docs:
+	$(REBAR) edoc
+
+
+shell:
+	$(REBAR) shell --config config/shell.config --name $(APP)@127.0.0.1 --setcookie nk --apps $(APP)
+

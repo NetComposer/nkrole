@@ -5,12 +5,6 @@
     {registered, []},
     {mod, {nkrole_app, []}},
     {applications, [
-        kernel,
-        stdlib,
-        crypto,
-        sasl,
-        ssl,
-        lager,
         nklib
     ]},
     {env, []}

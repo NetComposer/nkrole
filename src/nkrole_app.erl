@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2017 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -50,16 +50,14 @@ start() ->
 
 %% @private OTP standard start callback
 start(_Type, _Args) ->
+    {ok, Vsn} = application:get_key(?APP, vsn),
+    lager:info("NkROLE v~s is starting", [Vsn]),
     Syntax = #{
-        proxy_timeout => {integer, 1, none}
+        proxy_timeout => {integer, 1, none},           %% Object's proxy timeout (msecs)
+        '__defaults' => #{proxy_timeout => 180000}
     },
-    Defaults = #{
-        proxy_timeout => 180000
-    },
-    case nklib_config:load_env(?APP, Syntax, Defaults) of
+    case nklib_config:load_env(?APP, Syntax) of
         {ok, _} ->
-            {ok, Vsn} = application:get_key(?APP, vsn),
-            lager:info("NkROLE v~s is starting", [Vsn]),
             nkrole_sup:start_link();
         {error, Error} ->
             lager:error("Error parsing config: ~p", [Error]),

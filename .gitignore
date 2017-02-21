@@ -5,3 +5,7 @@ ebin
 log
 .rebar
 .eunit
+/nkrole.version
+/include/nkrole_version.hrl
+/.rebar3
+/_build

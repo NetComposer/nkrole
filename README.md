@@ -4,11 +4,11 @@ NkROLE is a framework for managing complex relations among arbitrary objects in 
 
 NkROLE creates a number of caches, so that, once all objects having a role over another object are found, the list is saved for future queries. If any of the base conditions used for the calculation change (because the base object or any of the objects used for the calculation have changed) all related caches are automatically invalidated (and only the related caches).
 
-NkROLE creates a process for each used object in the cluster called the _role proxy_. Role proxies have a timeout value. If no further query is received for a period of time, they are removed. Role proxies will typically be started by another Erlang process representing the real object.
+NkROLE creates a process for each used object called the _role proxy_. Role proxies have a timeout value. If no further query is received for a period of time, they are removed. Role proxies will typically be started by another Erlang process representing the real object.
 
 For each query that involves nested roles, a cache (another Erlang process) is started for each specific role at each related proxy, also with an specific timeout value, so that new queries are very fast, even with a huge number of objects and nested relations.
 
-NkROLES uses by default ETS storage, and you must populate it calling `nkrole_backend:put_rolemap/2`. However, you can supply the option `get_rolemap_fun` to most API calls, and it will be called to get the `rolemap` for an specific object instead of the built-in storage.
+NkROLE uses by default ETS storage, and you must populate it calling `nkrole_backend:put_rolemap/2`. However, you can supply the option `get_rolemap_fun` to most API calls, and it will be called to get the `rolemap` for an specific object instead of the built-in storage.
 
 
 # Example1

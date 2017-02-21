@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2017 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -36,22 +36,30 @@
 %% Types
 %% ===================================================================
 
+%% The object's id
 -type obj_id() :: term().
 
+%% The role
 -type role() :: term().
 
--type role_spec() :: obj_id() | #{role() => obj_id()}.
-
+%% The list of roles that an object has
 -type role_map() :: #{role() => [role_spec()]}.
 
+%% Two ways to specify who has a role:
+%% - an specific object
+%% - all objects 'having' a role over another object
+-type role_spec() :: obj_id() | #{role() => obj_id()}.
+
+%% Function to get the role_map() for an object.
+%% (If not used, the default backend would be used)
 -type get_rolemap_fun() :: fun((obj_id()) -> {ok, role_map()} | {error, not_found|term()}).
 
 -type opts() ::
     #{
-        timeout => pos_integer() | infinity,
-        proxy_timeout => pos_integer() | infinity,
-        get_rolemap_fun => get_rolemap_fun()
-        % proxy_pid => pid()
+        op_timeout => pos_integer() | infinity,         % Timeout for operation (msecs)
+        proxy_timeout => pos_integer() | infinity,      % Object proxy timeout (msecs)
+        get_rolemap_fun => get_rolemap_fun(),
+        debug => boolean()
     }.
 
 
@@ -61,7 +69,7 @@
 %% ===================================================================
 
 
-%% @doc Gets an object's roles
+%% @doc Gets an object's list of used roles
 -spec get_roles(obj_id(), opts()) ->
     {ok, [role()]} | {error, term()}.
 
@@ -69,7 +77,7 @@ get_roles(ObjId, Opts) ->
     proxy_op(ObjId, get_roles, Opts).
 
 
-%% @doc Gets an object's direct roles
+%% @doc Gets the rolemap for an specific role (no nested search)
 -spec get_role_objs(role(), obj_id(), opts()) ->
     {ok, [role_spec()]} | {error, term()}.
 
@@ -114,7 +122,7 @@ find_role_objs(_Role, _ObjId, _Opts, [], Acc) ->
 find_role_objs(Role, ObjId, Opts, [Pid|Rest], Acc) ->
     case nkrole_cache:get_cached(Pid) of
         {ok, SubObjIds, SubPids} ->
-            lager:debug("CALL FOR ~p: ~p, ~p", [Pid, SubObjIds, SubPids]),
+            %% lager:debug("CALL FOR ~p: ~p, ~p", [Pid, SubObjIds, SubPids]),
             case find_role_objs(Role, ObjId, Opts, SubPids, [SubObjIds|Acc]) of
                 {ok, Acc2} ->
                     find_role_objs(Role, ObjId, Opts, Rest, Acc2);
@@ -139,11 +147,10 @@ add_role(Role, Base, ObjId, Opts) ->
     ok | {error, term()}.
 
 add_subrole(Role, Base, SubRole, ObjId, Opts) ->
-    Spec = maps:put(SubRole, ObjId, #{}),
-    proxy_op(Base, {add_role, Role, Spec}, Opts).
+    proxy_op(Base, {add_role, Role, #{SubRole=>ObjId}}, Opts).
 
 
-%% @doc Adds a role to an object
+%% @doc Removes a role from an object
 -spec del_role(role(), obj_id(), obj_id(), opts()) ->
     ok | {error, term()}.
 
@@ -151,16 +158,15 @@ del_role(Role, Base, ObjId, Opts) ->
     proxy_op(Base, {del_role, Role, ObjId}, Opts).
 
 
-%% @doc Adds a role to an object
+%% @doc Removes a subrole from an object
 -spec del_subrole(role(), obj_id(), role(), obj_id(), opts()) ->
     ok | {error, term()}.
 
 del_subrole(Role, Base, SubRole, ObjId, Opts) ->
-    Spec = maps:put(SubRole, ObjId, #{}),
-    proxy_op(Base, {del_role, Role, Spec}, Opts).
+    proxy_op(Base, {del_role, Role, #{SubRole=>ObjId}}, Opts).
 
 
-%% @doc Adds a role to an object
+%% @doc Replaces a full role on an object
 -spec set_role(role(), obj_id(), [role_spec()], opts()) ->
     ok | {error, term()}.
 
@@ -168,7 +174,7 @@ set_role(Role, Base, RoleSpecs, Opts) when is_list(RoleSpecs) ->
     proxy_op(Base, {set_role, Role, RoleSpecs}, Opts).
 
 
-%% @doc
+%% @doc Stops the proxy for an object
 -spec stop(nkrole:obj_id()) ->
     ok | {error, term()}.
 

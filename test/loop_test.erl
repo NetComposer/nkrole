@@ -25,8 +25,6 @@
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(nkrole, [find_role_objs/3]).
-
 
 loop_test_() ->
   	{setup, 
@@ -49,14 +47,16 @@ loop_test_() ->
 loop() ->
     test_util:insert(set2),
     lager:notice("The following messages about looped errors are expected"),
-    {ok, [obj_2, obj_1, obj_1, obj_2]} = find_role_objs(member, obj_1, #{}),
-    {ok, [obj_2, obj_1]} = find_role_objs(member, obj_2, #{}),
-    {ok, []} = find_role_objs(member, obj_3, #{}),
-    {ok, []} = find_role_objs(member, obj_4, #{}),
-    {ok, []} = find_role_objs(member, obj_5, #{}),
-    {ok, []} = find_role_objs(member, obj_6, #{}),
-    {ok, []} = find_role_objs(member, obj_7, #{}),
+    [obj_1, obj_2] = find_role_objs(member, obj_1),
+    [obj_1, obj_2] = find_role_objs(member, obj_2),
+    [] = find_role_objs(member, obj_3),
+    [] = find_role_objs(member, obj_4),
+    [] = find_role_objs(member, obj_5),
+    [] = find_role_objs(member, obj_6),
+    [] = find_role_objs(member, obj_7),
     ok.
 
-	
-	
+
+find_role_objs(Role, Obj) ->
+	{ok, List} = nkrole:find_role_objs(Role, Obj, #{}),
+	lists:usort(List).

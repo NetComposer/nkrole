@@ -1,0 +1,24 @@
+{"1.1.0",
+[{<<"enotify">>,{pkg,<<"enotify">>,<<"0.1.0">>},1},
+ {<<"eper">>,{pkg,<<"eper">>,<<"0.94.0">>},1},
+ {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},2},
+ {<<"jiffy">>,{pkg,<<"jiffy">>,<<"0.14.11">>},1},
+ {<<"jsx">>,{pkg,<<"jsx">>,<<"2.8.2">>},1},
+ {<<"lager">>,{pkg,<<"lager">>,<<"3.2.4">>},1},
+ {<<"meck">>,{pkg,<<"meck">>,<<"0.8.4">>},1},
+ {<<"nklib">>,
+  {git,"https://github.com/netcomposer/nklib",
+       {ref,"d4ab34c259f29f967a447cfa4562f240fe11f1ff"}},
+  0},
+ {<<"recon">>,{pkg,<<"recon">>,<<"2.3.2">>},1}]}.
+[
+{pkg_hash,[
+ {<<"enotify">>, <<"F6BF33AA7BC4789D953087E48C6ADBC6D9682B6D67E4BC353C2FDB96C5AC5595">>},
+ {<<"eper">>, <<"F5FB2DAA0DF8878748E1C598428EDA942A173E5121FF35C1D632129B84593A3A">>},
+ {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
+ {<<"jiffy">>, <<"919A87D491C5A6B5E3BBC27FAFEDC3A0761CA0B4C405394F121F582FD4E3F0E5">>},
+ {<<"jsx">>, <<"7ACC7D785B5ABE8A6E9ADBDE926A24E481F29956DD8B4DF49E3E4E7BCC92A018">>},
+ {<<"lager">>, <<"A6DEB74DAE7927F46BD13255268308EF03EB206EC784A94EAF7C1C0F3B811615">>},
+ {<<"meck">>, <<"59CA1CD971372AA223138EFCF9B29475BDE299E1953046A0C727184790AB1520">>},
+ {<<"recon">>, <<"4444C879BE323B1B133EEC5241CB84BD3821EA194C740D75617E106BE4744318">>}]}
+].

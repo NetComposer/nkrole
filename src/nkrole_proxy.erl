@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2017 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,7 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc Obj Proxy
+%% @doc Every time an object is referred, a proxy process is started, with a timeout value
 -module(nkrole_proxy).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
@@ -33,14 +33,38 @@
 
 -define(CALL_TRIES, 3).
 
+%% See nkrole.erl
 -type op() ::
-    get_roles | {get_role_objs, nkrole:role()} |  
+    get_roles |
+    {get_role_objs, nkrole:role()} |
     {has_role, nkrole:obj_id(), nkrole:role()} |
     {has_elements, nkrole:role(), sets:set(pid())} |
     {get_cached, nkrole:role()} | 
     {add_role, nkrole:role(), nkrole:role_spec()} |
     {del_role, nkrole:role(), nkrole:role_spec()} |
     {set_role, nkrole:role(), [nkrole:role_spec()]}.
+
+
+
+-define(DEBUG(Txt, Args, State),
+    case State#state.debug of
+        true -> ?LLOG(debug, Txt, Args, State);
+        _ -> ok
+    end).
+
+
+-define(LLOG(Type, Txt, Args, State),
+    lager:Type(
+        [
+            {obj_id, State#state.obj_id}
+        ],
+        "NkROLE proxy (~p): "++Txt, [State#state.obj_id | Args])).
+
+
+-define(LLOG(Type, Txt, Args),
+    lager:Type("NkROLE proxy: "++Txt, Args)).
+
+
 
 
 %% ===================================================================
@@ -54,9 +78,6 @@
 
 get_proxy(Pid, _Opts) when is_pid(Pid) ->
     {ok, Pid};
-
-% get_proxy(_, #{proxy_pid:=Pid}) ->
-%     {ok, Pid};
 
 get_proxy(ObjId, Opts) ->
     case nklib_proc:values({?MODULE, ObjId}) of
@@ -72,33 +93,7 @@ get_proxy(ObjId, Opts) ->
     {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
 proxy_op(ObjId, Op, Opts) ->
-    proxy_op(ObjId, Op, Opts, ?CALL_TRIES).
-
-
-%% @private
--spec proxy_op(nkrole:obj_id(), op(), nkrole:opts(), pos_integer()) ->
-    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
-
-proxy_op(ObjId, Op, Opts, Tries) ->
-    case get_proxy(ObjId, Opts) of
-        {ok, ProxyPid} ->
-            % Check if the proxy has stopped just after getting its pid
-            Timeout = maps:get(timeout, Opts, 5000),
-            case nklib_util:call(ProxyPid, Op, Timeout) of
-                ok ->
-                    {ok, ProxyPid};
-                {ok, Reply} ->
-                    {ok, Reply, ProxyPid};
-                {error, {exit, _}} when Tries > 1 ->
-                    lager:notice("NkROLE Proxy call exit (~p), retrying", [Op]),
-                    timer:sleep(100),
-                    proxy_op(ObjId, Op, Opts, Tries-1);
-                {error, Error} ->
-                    {error, Error}
-            end;
-        {error, Error} ->
-            {error, Error}
-    end.
+    do_call(ObjId, Op, Opts).
 
 
 %% @private
@@ -111,7 +106,7 @@ get_all() ->
 
 %% @private
 -spec get_all_caches() ->
-    [{nkrole:obj_id(), pid()}].
+    [{nkrole:obj_id(), pid(), [{nkrole:role(), pid()}]}].
 
 get_all_caches() ->
     lists:map(
@@ -119,7 +114,7 @@ get_all_caches() ->
         get_all()).
 
 
-%% @doc
+%% @doc Stops a proxy
 -spec stop(nkrole:obj_id()) ->
     ok | {error, term()}.
 
@@ -127,7 +122,7 @@ stop(ObjId) ->
     do_cast(ObjId, stop, #{}).
 
 
-%% @private Stops all proxies, only for ets backend
+%% @private Stops all proxies
 -spec stop_all() ->
     ok.
 
@@ -160,7 +155,8 @@ start_link(ObjId, Opts) ->
     rolemap :: nkrole:role_map(),
     proxy_timeout :: pos_integer() | infinity,
     get_fun :: nkrole:get_rolemap_fun(),
-    caches = [] :: [{nkrole:role(), pid()}]
+    caches = [] :: [{nkrole:role(), pid()}],
+    debug :: boolean()
 }).
 
 
@@ -169,8 +165,10 @@ init({ObjId, Opts}) ->
     nklib_proc:put(?MODULE, ObjId),
     nklib_proc:put({?MODULE, ObjId}),
     ProxyTimeout = case maps:find(proxy_timeout, Opts) of
-        {ok, Timeout1} -> Timeout1;
-        error -> nkrole_app:get(proxy_timeout)
+        {ok, Time} ->
+            Time;
+        error ->
+            nkrole_app:get(proxy_timeout)
     end,
     GetFun = nkrole_backend:get_rolemap_fun(Opts),
     case GetFun(ObjId) of
@@ -180,9 +178,10 @@ init({ObjId, Opts}) ->
                 rolemap = RoleMap,
                 proxy_timeout = ProxyTimeout, 
                 get_fun = GetFun,
-                caches = []
+                caches = [],
+                debug = maps:get(debug, Opts, false) == true
             },
-            lager:debug("NkROLE started proxy for ~p (~p)", [ObjId, self()]),
+            ?DEBUG("started (~p)", [self()], State),
             {ok, State, ProxyTimeout};
         {error, not_found} ->
             ignore;
@@ -193,7 +192,7 @@ init({ObjId, Opts}) ->
 
 %% @private
 -spec handle_call(term(), {pid(), term()}, #state{}) ->
-    {noreply, #state{}} | {reply, term(), #state{}}.
+    {noreply, #state{}, non_neg_integer()} | {reply, term(), #state{}, non_neg_integer()}.
 
 handle_call(get_roles, _From, #state{rolemap=RoleMap}=State) ->
     reply({ok, maps:keys(RoleMap)}, State);
@@ -202,17 +201,17 @@ handle_call({get_role_objs, Role}, _From, #state{rolemap=RoleMap}=State) ->
     reply({ok, maps:get(Role, RoleMap, [])}, State);
 
 handle_call({has_role, ObjId, Role}, From, State) ->
-    {ok, Pid, State1} = get_cache(Role, State),
+    {ok, Pid, State2} = get_cache(Role, State),
     spawn_link(
         fun() ->
             Reply = nkrole_cache:has_obj_id(Pid, ObjId),
             gen_server:reply(From, Reply)
         end),
-    noreply(State1);
+    noreply(State2);
 
 handle_call({has_elements, Role, Path}, {CallerPid, _}=From, State) ->
     case get_cache(Role, Path, CallerPid, State) of
-        {ok, Pid, State1} ->
+        {ok, Pid, State2} ->
             spawn_link(
                 fun() ->
                     Reply = case nkrole_cache:has_elements(Pid) of
@@ -222,13 +221,13 @@ handle_call({has_elements, Role, Path}, {CallerPid, _}=From, State) ->
                     end,
                     gen_server:reply(From, Reply)
                 end),
-            noreply(State1);
+            noreply(State2);
         {error, Error} ->
             reply({error, Error}, State)
     end;
 
 handle_call({get_cached, Role}, From, State) ->
-    {ok, Pid, State1} = get_cache(Role, State),
+    {ok, Pid, State2} = get_cache(Role, State),
     spawn_link(
         fun() ->
             Reply = case nkrole_cache:get_cached(Pid) of
@@ -237,41 +236,41 @@ handle_call({get_cached, Role}, From, State) ->
             end,
             gen_server:reply(From, Reply)
         end),
-    noreply(State1);
+    noreply(State2);
 
 handle_call({set_role, Role, Specs}, _From, #state{rolemap=RoleMap}=State) ->
-    State1 = case maps:get(Role, RoleMap, []) of
+    State2 = case maps:get(Role, RoleMap, []) of
         Specs ->
             State;
         _Old ->
-            RoleMap1 = maps:put(Role, Specs, RoleMap),
-            invalidate_role(Role, State#state{rolemap=RoleMap1})
+            RoleMap2 = RoleMap#{Role=>Specs},
+            invalidate_role(Role, State#state{rolemap=RoleMap2})
     end,
-    reply(ok, State1);
+    reply(ok, State2);
 
 handle_call({add_role, Role, Spec}, _From, #state{rolemap=RoleMap}=State) ->
     RoleObjs = maps:get(Role, RoleMap, []),
-    State1 = case lists:member(Spec, RoleObjs) of
+    State2 = case lists:member(Spec, RoleObjs) of
         true ->
             State;
         false ->
-            RoleObjs1 = [Spec|RoleObjs],
-            RoleMap1 = maps:put(Role, RoleObjs1, RoleMap),
-            invalidate_role(Role, State#state{rolemap=RoleMap1})
+            RoleObjs2 = [Spec|RoleObjs],
+            RoleMap2 = RoleMap#{Role=>RoleObjs2},
+            invalidate_role(Role, State#state{rolemap=RoleMap2})
     end,
-    reply(ok, State1);
+    reply(ok, State2);
 
 handle_call({del_role, Role, Spec}, _From, #state{rolemap=RoleMap}=State) ->
     RoleObjs = maps:get(Role, RoleMap, []),
-    State1 = case lists:member(Spec, RoleObjs) of
+    State2 = case lists:member(Spec, RoleObjs) of
         true ->
-            RoleObjs1 = RoleObjs -- [Spec],
-            RoleMap1 = maps:put(Role, RoleObjs1, RoleMap),
-            invalidate_role(Role, State#state{rolemap=RoleMap1});
+            RoleObjs2 = RoleObjs -- [Spec],
+            RoleMap2 = RoleMap#{Role=>RoleObjs2},
+            invalidate_role(Role, State#state{rolemap=RoleMap2});
         false ->
             State
     end,
-    reply(ok, State1);
+    reply(ok, State2);
 
 handle_call(get_caches, _From, #state{caches=Caches}=State) ->
     reply(Caches, State);
@@ -323,13 +322,13 @@ code_change(_OldVsn, State, _Extra) ->
 -spec terminate(term(), #state{}) ->
     ok.
 
-terminate(_Reason, #state{obj_id=ObjId}) ->  
-    lager:debug("NkROLE stopped proxy for ~p", [ObjId]).
+terminate(_Reason, State) ->
+    ?DEBUG("stopped proxy (~p)", [self()], State).
 
 
 
 %% ===================================================================
-%% gen_server behaviour
+%% Internal
 %% ===================================================================
 
 %% @private
@@ -347,8 +346,7 @@ get_cache(Role, State) ->
 
 get_cache(Role, Path, CallerPid, State) ->
     #state{
-        obj_id = ObjId,
-        rolemap = RoleMap, 
+        rolemap = RoleMap,
         caches = Caches, 
         get_fun = GetFun,
         proxy_timeout = ProxyTimeout
@@ -371,7 +369,7 @@ get_cache(Role, Path, CallerPid, State) ->
                 get_rolemap_fun => GetFun
             },
             {ok, Pid} = nkrole_cache:start_link(RoleList, self(), Path, Opts),
-            lager:debug("NkROLE started cache for ~p ~p (~p)", [ObjId, Role, Pid]),
+            ?DEBUG("started cache for ~p (~p)", [xRole, Pid], State),
             monitor(process, Pid),
             {ok, Pid, State#state{caches=[{Role, Pid}|Caches]}}
     end.
@@ -381,13 +379,12 @@ get_cache(Role, Path, CallerPid, State) ->
 -spec stop_cache(pid(), #state{}) ->
     #state{}.
 
-stop_cache(Pid, #state{obj_id=ObjId, caches=Caches}=State) ->
+stop_cache(Pid, #state{caches=Caches}=State) ->
     case lists:keytake(Pid, 2, Caches) of
-        {value, {Role, Pid}, Caches1} ->
-            lager:debug("NkROLE proxy ~p stop cache for ~p (~p)", [ObjId, Role, Pid]),
+        {value, {Role, Pid}, Caches2} ->
+            ?DEBUG("stop cache for ~p (~p)", [Role, Pid], State),
             nkrole_cache:stop(Pid),
-            Caches1 = lists:keydelete(Pid, 2, Caches),
-            State#state{caches=Caches1};
+            State#state{caches=Caches2};
         false ->
             State
     end.
@@ -397,10 +394,10 @@ stop_cache(Pid, #state{obj_id=ObjId, caches=Caches}=State) ->
 -spec invalidate_role(nkrole:role(), #state{}) ->
     #state{}.
 
-invalidate_role(Role, #state{obj_id=ObjId, caches=Caches}=State) ->
+invalidate_role(Role, #state{caches=Caches}=State) ->
     case lists:keyfind(Role, 1, Caches) of
         {Role, Pid} ->
-            lager:debug("NkROLE invalidating role ~p at ~p (~p)", [Role, ObjId, Caches]),
+            ?DEBUG("invalidating role ~p (~p)", [Role, Caches], State),
             stop_cache(Pid, State);
         false ->
             State
@@ -416,6 +413,42 @@ reply(Reply, #state{proxy_timeout=Timeout}=State) ->
 noreply(#state{proxy_timeout=Timeout}=State) ->
     {noreply, State, Timeout}.
 
+
+
+%% @private
+-spec do_call(nkrole:obj_id(), op(), nkrole:opts()) ->
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
+
+do_call(ObjId, Op, Opts) ->
+    do_call(ObjId, Op, Opts, ?CALL_TRIES).
+
+
+%% @private
+-spec do_call(nkrole:obj_id(), op(), nkrole:opts(), pos_integer()) ->
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
+
+do_call(ObjId, Op, Opts, Tries) ->
+    case get_proxy(ObjId, Opts) of
+        {ok, ProxyPid} ->
+            % Check if the proxy has stopped just after getting its pid
+            Timeout = maps:get(op_timeout, Opts, 5000),
+            case nklib_util:call(ProxyPid, Op, Timeout) of
+                ok ->
+                    {ok, ProxyPid};
+                {ok, Reply} ->
+                    {ok, Reply, ProxyPid};
+                {error, {exit, {{timeout, _}, _}}} ->
+                    {error, timeout};
+                {error, {exit, _}} when Tries > 1 ->
+                    ?LLOG(info, "call exit (~p), retrying", [Op]),
+                    timer:sleep(100),
+                    do_call(ObjId, Op, Opts, Tries-1);
+                {error, Error} ->
+                    {error, Error}
+            end;
+        {error, Error} ->
+            {error, Error}
+    end.
 
 
 %% @private

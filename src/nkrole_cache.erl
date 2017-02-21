@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2017 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -31,6 +31,18 @@
 
 -include("nkrole.hrl").
 
+-define(DEBUG(Txt, Args, State),
+    case State#state.debug of
+        true -> ?LLOG(debug, Txt, Args);
+        _ -> ok
+    end).
+
+
+-define(LLOG(Type, Txt, Args),
+    lager:Type("NkROLE cache: "++Txt, Args)).
+
+-define(OP_TIMEOUT, 180000).
+
 
 %% ===================================================================
 %% Public
@@ -51,7 +63,7 @@ start_link(RoleSpecs, ProxyPid, Path, Opts) ->
     {ok, [nkrole:obj_id()], [pid()]} | {error, term()}.
 
 get_cached(Pid) ->
-    nklib_util:call(Pid, get_cached, 180000).
+    nklib_util:call(Pid, get_cached, ?OP_TIMEOUT).
 
 
 %% @private
@@ -59,7 +71,7 @@ get_cached(Pid) ->
     {ok, boolean()} | {error, term()}.
 
 has_elements(Pid) ->
-    nklib_util:call(Pid, has_elements, 180000).
+    nklib_util:call(Pid, has_elements, ?OP_TIMEOUT).
 
 
 %% @private
@@ -67,7 +79,7 @@ has_elements(Pid) ->
     {ok, boolean()} | {error, term()}.
 
 has_obj_id(Pid, ObjId) ->
-    nklib_util:call(Pid, {has_obj_id, ObjId}, 180000).
+    nklib_util:call(Pid, {has_obj_id, ObjId}, ?OP_TIMEOUT).
 
 
 %% @doc Stops a cache
@@ -91,25 +103,27 @@ get_all() ->
 -record(state, {
     proxy :: pid(),
     obj_set :: sets:set(nkrole:obj_id()),
-    cache_pids :: [pid()]
+    cache_pids :: [pid()],
+    debug :: boolean()
 }).
 
 
 %% @private
 -spec init({[nkrole:role_spec()], pid(), sets:set(pid()), nkrole:opts()}) ->
-    ok.
+    {ok, pid()}.
 
 init({RoleSpecs, ProxyPid, Path, Opts}) ->
-    ok = proc_lib:init_ack({ok, self()}),
     nklib_proc:put(?MODULE, ProxyPid),
-    {ObjIdSet, CachePids} = find_objs(RoleSpecs, Path, Opts),
     monitor(process, ProxyPid),
-    State = #state{
+    State1 = #state{
         proxy = ProxyPid,
-        obj_set = ObjIdSet, 
-        cache_pids = CachePids
+        obj_set = sets:new(),
+        debug = maps:get(debug, Opts, false) == true,
+        cache_pids = []
     },
-    gen_server:enter_loop(?MODULE, [], State).
+    ok = proc_lib:init_ack({ok, self()}),
+    State2 = find_objs(RoleSpecs, Path, Opts, State1),
+    gen_server:enter_loop(?MODULE, [], State2).
 
 
 %% @private
@@ -187,51 +201,55 @@ terminate(_Reason, _State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Internal %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% @private
-find_objs(RoleSpecs, Path, Opts) ->
+find_objs(RoleSpecs, Path, Opts, State) ->
     Path2 = sets:add_element(self(), Path),
-    find_objs(RoleSpecs, [], [], Path2, Opts).
+    find_objs(RoleSpecs, [], [], Path2, Opts, State).
 
     
 %% @private
-find_objs([], ObjIds, Pids, _Path, _Opts) ->
-    {sets:from_list(ObjIds), lists:reverse(Pids)};
+find_objs([], ObjIds, Pids, _Path, _Opts, State) ->
+    State#state{
+        obj_set = sets:from_list(ObjIds),
+        cache_pids = lists:reverse(Pids)
+    };
 
-find_objs([Map|Rest], ObjIds, Pids, Path, Opts) when is_map(Map), map_size(Map)==1 ->
+find_objs([Map|Rest], ObjIds, Pids, Path, Opts, State)
+        when is_map(Map), map_size(Map)==1 ->
     [{SubRole, ObjId}] = maps:to_list(Map),
-    case find_subrole(SubRole, ObjId, Path, Opts) of
+    case find_subrole(SubRole, ObjId, Path, Opts, State) of
         {ok, Bool, CachePid} ->
             monitor(process, CachePid),
-            Path1 = sets:add_element(CachePid, Path),
-            CachePids1 = case Bool of 
+            Path2 = sets:add_element(CachePid, Path),
+            CachePids2 = case Bool of
                 true ->
-                    lager:debug("Adding ~p (~p): ~p", 
-                                 [{SubRole, ObjId}, self(), CachePid]),
+                    ?DEBUG("adding ~p (~p): ~p",
+                           [{SubRole, ObjId}, self(), CachePid], State),
                     [CachePid|Pids];
                 false ->
-                    lager:debug("Monitoring ~p (~p): ~p", 
-                                 [{SubRole, ObjId}, self(), CachePid]),
+                    ?DEBUG("monitoring ~p (~p): ~p",
+                           [{SubRole, ObjId}, self(), CachePid], State),
                     Pids
             end,
-            find_objs(Rest, ObjIds, CachePids1, Path1, Opts);
+            find_objs(Rest, ObjIds, CachePids2, Path2, Opts, State);
          error ->
-            find_objs(Rest, ObjIds, Pids, Path, Opts)
+            find_objs(Rest, ObjIds, Pids, Path, Opts, State)
     end;
 
-find_objs([ObjId|Rest], ObjIds, Pids, Path, Opts) ->
-    lager:debug("Adding ~p (~p)", [ObjId, self()]),
-    find_objs(Rest, [ObjId|ObjIds], Pids, Path, Opts).
+find_objs([ObjId|Rest], ObjIds, Pids, Path, Opts, State) ->
+    ?DEBUG("adding ~p (~p)", [ObjId, self()], State),
+    find_objs(Rest, [ObjId|ObjIds], Pids, Path, Opts, State).
 
 
 %% @private
-find_subrole(SubRole, ObjId, Path, Opts) ->
-    Opts1 = Opts#{timeout=>180000},
-    case nkrole_proxy:proxy_op(ObjId, {has_elements, SubRole, Path}, Opts1) of
+find_subrole(SubRole, ObjId, Path, Opts, State) ->
+    Opts2 = Opts#{op_timeout=>?OP_TIMEOUT},
+    case nkrole_proxy:proxy_op(ObjId, {has_elements, SubRole, Path}, Opts2) of
         {ok, {true, CachePid}, _ProxyPid} ->
             {ok, true, CachePid};
         {ok, {false, CachePid}, _ProxyPid} ->
             {ok, false, CachePid};
         {error, Error} ->
-            lager:notice("Error getting obj ~p: ~p", [ObjId, Error]),
+            ?DEBUG("error getting obj ~p: ~p", [ObjId, Error], State),
             error
     end.
 
@@ -241,12 +259,12 @@ has_obj_id(_ObjId, [], From) ->
     gen_server:reply(From, {ok, false});
 
 has_obj_id(ObjId, [Pid|Rest], From) ->
-    case catch gen_server:call(Pid, {has_obj_id, ObjId}, 180000) of
+    case has_obj_id(Pid, ObjId) of
         {ok, true} -> 
             gen_server:reply(From, {ok, true});
         {ok, false} ->
             has_obj_id(ObjId, Rest, From);
-        {'EXIT', Error} ->
+        {error, Error} ->
             {error, Error}
     end.
 
