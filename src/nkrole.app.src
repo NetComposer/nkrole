@@ -1,5 +1,5 @@
 {application, nkrole, [
-    {description, "Nekso Role Framework"},
+    {description, "NetComposer Role Framework"},
     {vsn, "develop"},
     {modules, []},
     {registered, []},
